@@ -4,7 +4,7 @@ import { Login } from "./components/Login";
 import { Dashboard } from "./components/Dashboard";
 import { ServiceRequests } from "./components/ServiceRequests";
 import { UsersGrouped } from "./components/UsersGrouped";
-import { Trucks } from "./components/Trucks";
+import { FleetPage } from "./components/FleetPage";
 import { Financial } from "./components/Financial";
 import { ServiceCatalog } from "./components/ServiceCatalog";
 import { Tracking } from "./components/Tracking";
@@ -44,7 +44,7 @@ export const router = createBrowserRouter([
           { index: true, Component: Dashboard },
           { path: "services", Component: ServiceRequests },
           { path: "users", Component: UsersGrouped },
-          { path: "trucks", Component: Trucks },
+          { path: "trucks", Component: FleetPage },
           { path: "financial", Component: Financial },
           { path: "catalog", Component: ServiceCatalog },
           { path: "tracking", Component: Tracking },
