@@ -19,12 +19,18 @@ import {
   LogOut
 } from "lucide-react";
 import { useState } from "react";
-import { clearAuthData, getStoredAdminUser } from "../lib/auth";
+import { clearAdminSession, getStoredAdminSession } from "../auth";
+import { adminFetch } from "../apiClient";
+import { AdminDialogProvider } from "../adminDialog";
 
 export function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const navigate = useNavigate();
-  const adminUser = getStoredAdminUser<{ name?: string; fullName?: string; email?: string }>();
+  const session = getStoredAdminSession();
+  const adminName =
+    session?.user?.adminProfile?.fullName || session?.user?.email || "Admin";
+  const accessToken = session?.accessToken;
 
   const navItems = [
     { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -44,16 +50,27 @@ export function Layout() {
     { to: "/settings", label: "Settings", icon: SettingsIcon },
   ];
 
-  const adminDisplayName = adminUser?.name || adminUser?.fullName || "Admin User";
-  const adminEmail = adminUser?.email || "admin@truckfix.com";
+  const handleLogout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
 
-  const handleLogout = () => {
-    clearAuthData();
-    setSidebarOpen(false);
-    navigate("/login", { replace: true });
+    try {
+      // Best-effort server logout (token may already be invalid).
+      if (accessToken) {
+        await adminFetch("/auth/logout", { method: "POST" }, { retryOnUnauthorized: false });
+      }
+    } catch {
+      // Intentionally ignored: local logout must still succeed.
+    } finally {
+      clearAdminSession();
+      setSidebarOpen(false);
+      navigate("/login", { replace: true });
+      setLoggingOut(false);
+    }
   };
 
   return (
+    <AdminDialogProvider>
     <div className="min-h-screen bg-gray-50">
       {/* Mobile menu button */}
       <button
@@ -70,12 +87,15 @@ export function Layout() {
         } lg:translate-x-0`}
       >
         <div className="flex h-full flex-col p-6">
-          <div className="flex items-center gap-2 mb-8">
+          <div className="flex items-center gap-2 mb-8 shrink-0">
             <Truck className="text-blue-400" size={32} />
-            <h1 className="text-xl font-bold">Truckfix Admin</h1>
+            <div>
+              <h1 className="text-xl font-bold">Truckfix Admin</h1>
+              <p className="text-xs text-gray-400">{adminName}</p>
+            </div>
           </div>
 
-          <nav className="flex-1 space-y-2 overflow-y-auto">
+          <nav className="space-y-2 flex-1 overflow-y-auto pr-1">
             {navItems.map((item) => (
               <NavLink
                 key={item.to}
@@ -96,15 +116,15 @@ export function Layout() {
             ))}
           </nav>
 
-          <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4">
-            <p className="text-sm font-semibold text-white">{adminDisplayName}</p>
-            <p className="mt-1 text-xs text-gray-400">{adminEmail}</p>
+          <div className="mt-6 border-t border-gray-800 pt-6 shrink-0">
             <button
+              type="button"
               onClick={handleLogout}
-              className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/20"
+              disabled={loggingOut}
+              className="flex w-full items-center gap-3 rounded-lg border border-gray-800 px-4 py-3 text-gray-300 transition hover:bg-gray-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <LogOut size={16} />
-              Logout
+              <LogOut size={20} />
+              <span>{loggingOut ? "Signing out..." : "Sign Out"}</span>
             </button>
           </div>
         </div>
@@ -125,5 +145,6 @@ export function Layout() {
         </div>
       </main>
     </div>
+    </AdminDialogProvider>
   );
 }

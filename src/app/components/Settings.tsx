@@ -1,277 +1,664 @@
-import { Bell, Lock, User, Globe, CreditCard, Shield } from "lucide-react";
-import { useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Bell,
+  CreditCard,
+  Globe,
+  Loader2,
+  Shield,
+  User,
+} from "lucide-react";
+import { getApiBaseUrl, getStoredAdminSession, storeAdminSession } from "../auth";
+import { adminFetch } from "../apiClient";
+
+type AdminSettingsResponse = {
+  status: string;
+  message: string;
+  data: {
+    profile: {
+      _id: string;
+      email: string;
+      fullName: string;
+      phoneNumber: string | null;
+      role: string;
+      profilePhotoUrl: string | null;
+    };
+    preferences: {
+      timeZone: string;
+      language: string;
+      notificationsEnabled: boolean;
+      securityAlertsEnabled: boolean;
+      regionalFormat: string;
+      billingEmail: string;
+      privacyMode: string;
+    };
+  };
+};
+
+type SettingsForm = {
+  fullName: string;
+  email: string;
+  phoneNumber: string;
+  role: string;
+  profilePhotoUrl: string;
+  timeZone: string;
+  language: string;
+  notificationsEnabled: boolean;
+  securityAlertsEnabled: boolean;
+  regionalFormat: string;
+  billingEmail: string;
+  privacyMode: string;
+};
+
+const emptyForm: SettingsForm = {
+  fullName: "",
+  email: "",
+  phoneNumber: "",
+  role: "",
+  profilePhotoUrl: "",
+  timeZone: "GMT",
+  language: "English",
+  notificationsEnabled: true,
+  securityAlertsEnabled: true,
+  regionalFormat: "en-GB",
+  billingEmail: "",
+  privacyMode: "STANDARD",
+};
+
+const MAX_PROFILE_PHOTO_BYTES = 5 * 1024 * 1024;
 
 export function Settings() {
+  const photoInputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState("profile");
-  const [formData, setFormData] = useState({
-    fullName: "Admin User",
-    email: "admin@truckfix.com",
-    phone: "+44 20 7123 4567",
-    role: "Super Admin",
-    timezone: "GMT",
-    language: "English"
-  });
+  const [formData, setFormData] = useState<SettingsForm>(emptyForm);
+  const [initialData, setInitialData] = useState<SettingsForm>(emptyForm);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<string | null>(null);
 
-  const handleSaveChanges = () => {
-    console.log("Saving changes:", formData);
-    alert("Settings saved successfully!");
+  const session = getStoredAdminSession();
+  const accessToken = session?.accessToken;
+  const apiBaseUrl = getApiBaseUrl();
+
+  const tabs = useMemo(
+    () => [
+      { id: "profile", label: "Profile", icon: User },
+      { id: "notifications", label: "Notifications", icon: Bell },
+      { id: "regional", label: "Regional", icon: Globe },
+      { id: "billing", label: "Billing", icon: CreditCard },
+      { id: "privacy", label: "Privacy", icon: Shield },
+    ],
+    []
+  );
+
+  const loadSettings = async () => {
+    if (!accessToken) {
+      setLoading(false);
+      setError("Your admin session has expired. Please sign in again.");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/admin/settings`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      const payload = (await response.json()) as AdminSettingsResponse & {
+        message?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(payload.message || "Unable to load admin settings.");
+      }
+
+      const nextForm: SettingsForm = {
+        fullName: payload.data.profile.fullName || "",
+        email: payload.data.profile.email || "",
+        phoneNumber: payload.data.profile.phoneNumber || "",
+        role: payload.data.profile.role || "",
+        profilePhotoUrl: payload.data.profile.profilePhotoUrl || "",
+        timeZone: payload.data.preferences.timeZone || "GMT",
+        language: payload.data.preferences.language || "English",
+        notificationsEnabled: payload.data.preferences.notificationsEnabled ?? true,
+        securityAlertsEnabled: payload.data.preferences.securityAlertsEnabled ?? true,
+        regionalFormat: payload.data.preferences.regionalFormat || "en-GB",
+        billingEmail: payload.data.preferences.billingEmail || payload.data.profile.email || "",
+        privacyMode: payload.data.preferences.privacyMode || "STANDARD",
+      };
+
+      setFormData(nextForm);
+      setInitialData(nextForm);
+    } catch (fetchError) {
+      setError(
+        fetchError instanceof Error
+          ? fetchError.message
+          : "Unable to load admin settings."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadSettings();
+  }, []);
+
+  const handleSaveChanges = async () => {
+    if (!accessToken) return;
+
+    setSaving(true);
+    setError(null);
+    setFeedback(null);
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/admin/settings`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          profile: {
+            fullName: formData.fullName,
+            phoneNumber: formData.phoneNumber,
+            profilePhotoUrl: formData.profilePhotoUrl,
+          },
+          preferences: {
+            timeZone: formData.timeZone,
+            language: formData.language,
+            notificationsEnabled: formData.notificationsEnabled,
+            securityAlertsEnabled: formData.securityAlertsEnabled,
+            regionalFormat: formData.regionalFormat,
+            billingEmail: formData.billingEmail,
+            privacyMode: formData.privacyMode,
+          },
+        }),
+      });
+
+      const payload = (await response.json()) as AdminSettingsResponse & {
+        message?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(payload.message || "Unable to save admin settings.");
+      }
+
+      applySavedProfile(payload);
+      setFeedback("Admin settings saved successfully.");
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Unable to save admin settings."
+      );
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleCancel = () => {
-    console.log("Cancelled changes");
-    setFormData({
-      fullName: "Admin User",
-      email: "admin@truckfix.com",
-      phone: "+44 20 7123 4567",
-      role: "Super Admin",
-      timezone: "GMT",
-      language: "English"
-    });
+    setFormData(initialData);
+    setFeedback(null);
+    setError(null);
   };
 
-  const handleChangePhoto = () => {
-    console.log("Change photo clicked");
-    alert("Photo upload feature would be implemented here");
+  const applySavedProfile = (payload: AdminSettingsResponse) => {
+    const nextForm: SettingsForm = {
+      fullName: payload.data.profile.fullName || "",
+      email: payload.data.profile.email || "",
+      phoneNumber: payload.data.profile.phoneNumber || "",
+      role: payload.data.profile.role || "",
+      profilePhotoUrl: payload.data.profile.profilePhotoUrl || "",
+      timeZone: payload.data.preferences.timeZone || "GMT",
+      language: payload.data.preferences.language || "English",
+      notificationsEnabled: payload.data.preferences.notificationsEnabled ?? true,
+      securityAlertsEnabled: payload.data.preferences.securityAlertsEnabled ?? true,
+      regionalFormat: payload.data.preferences.regionalFormat || "en-GB",
+      billingEmail: payload.data.preferences.billingEmail || payload.data.profile.email || "",
+      privacyMode: payload.data.preferences.privacyMode || "STANDARD",
+    };
+
+    setFormData(nextForm);
+    setInitialData(nextForm);
+
+    if (session) {
+      storeAdminSession({
+        ...session,
+        user: {
+          ...session.user,
+          email: payload.data.profile.email,
+          adminProfile: {
+            ...(session.user.adminProfile || {}),
+            fullName: payload.data.profile.fullName,
+            phoneNumber: payload.data.profile.phoneNumber || undefined,
+            profilePhotoUrl: payload.data.profile.profilePhotoUrl || undefined,
+          },
+        },
+      });
+    }
   };
+
+  const handlePhotoFileChange = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !accessToken) return;
+
+    if (!file.type.startsWith("image/")) {
+      setError("Please choose an image file (JPG, PNG, WebP, or GIF).");
+      return;
+    }
+    if (file.size > MAX_PROFILE_PHOTO_BYTES) {
+      setError("Image must be 5 MB or smaller.");
+      return;
+    }
+
+    setUploadingPhoto(true);
+    setError(null);
+    setFeedback(null);
+
+    try {
+      const body = new FormData();
+      body.append("file", file);
+
+      const uploadResponse = await adminFetch("/admin/settings/profile-photo", {
+        method: "POST",
+        body,
+      });
+
+      const savePayload = (await uploadResponse.json()) as AdminSettingsResponse & {
+        message?: string;
+      };
+
+      if (!uploadResponse.ok) {
+        throw new Error(savePayload.message || "Unable to upload profile photo.");
+      }
+
+      applySavedProfile(savePayload);
+      setFeedback("Profile photo updated.");
+    } catch (uploadError) {
+      setError(
+        uploadError instanceof Error
+          ? uploadError.message
+          : "Unable to upload profile photo."
+      );
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  const initials =
+    formData.fullName
+      .split(" ")
+      .map((part) => part[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase() || "AD";
 
   return (
     <div>
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
-        <p className="text-gray-600 mt-1">Manage your admin panel preferences</p>
+        <p className="mt-1 text-gray-600">
+          Manage your admin profile, communication settings, and platform preferences
+        </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Settings Navigation */}
+      {(error || feedback) && (
+        <div
+          className={`mb-6 rounded-lg border px-4 py-3 text-sm ${
+            error
+              ? "border-red-200 bg-red-50 text-red-700"
+              : "border-green-200 bg-green-50 text-green-700"
+          }`}
+        >
+          {error || feedback}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="lg:col-span-1">
-          <div className="bg-white rounded-lg shadow">
+          <div className="rounded-lg bg-white shadow">
             <nav className="p-2">
-              <button 
-                onClick={() => setActiveTab("profile")}
-                className={`w-full flex items-center gap-3 px-4 py-3 text-left rounded-lg ${
-                  activeTab === "profile" ? "bg-blue-50 text-blue-700" : "hover:bg-gray-50 text-gray-700"
-                }`}
-              >
-                <User size={20} />
-                <span>Profile</span>
-              </button>
-              <button 
-                onClick={() => setActiveTab("notifications")}
-                className={`w-full flex items-center gap-3 px-4 py-3 text-left rounded-lg ${
-                  activeTab === "notifications" ? "bg-blue-50 text-blue-700" : "hover:bg-gray-50 text-gray-700"
-                }`}
-              >
-                <Bell size={20} />
-                <span>Notifications</span>
-              </button>
-              <button 
-                onClick={() => setActiveTab("security")}
-                className={`w-full flex items-center gap-3 px-4 py-3 text-left rounded-lg ${
-                  activeTab === "security" ? "bg-blue-50 text-blue-700" : "hover:bg-gray-50 text-gray-700"
-                }`}
-              >
-                <Lock size={20} />
-                <span>Security</span>
-              </button>
-              <button 
-                onClick={() => setActiveTab("regional")}
-                className={`w-full flex items-center gap-3 px-4 py-3 text-left rounded-lg ${
-                  activeTab === "regional" ? "bg-blue-50 text-blue-700" : "hover:bg-gray-50 text-gray-700"
-                }`}
-              >
-                <Globe size={20} />
-                <span>Regional</span>
-              </button>
-              <button 
-                onClick={() => setActiveTab("billing")}
-                className={`w-full flex items-center gap-3 px-4 py-3 text-left rounded-lg ${
-                  activeTab === "billing" ? "bg-blue-50 text-blue-700" : "hover:bg-gray-50 text-gray-700"
-                }`}
-              >
-                <CreditCard size={20} />
-                <span>Billing</span>
-              </button>
-              <button 
-                onClick={() => setActiveTab("privacy")}
-                className={`w-full flex items-center gap-3 px-4 py-3 text-left rounded-lg ${
-                  activeTab === "privacy" ? "bg-blue-50 text-blue-700" : "hover:bg-gray-50 text-gray-700"
-                }`}
-              >
-                <Shield size={20} />
-                <span>Privacy</span>
-              </button>
+              {tabs.map((tab) => {
+                const Icon = tab.icon;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left ${
+                      activeTab === tab.id
+                        ? "bg-blue-50 text-blue-700"
+                        : "text-gray-700 hover:bg-gray-50"
+                    }`}
+                  >
+                    <Icon size={20} />
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
             </nav>
           </div>
         </div>
 
-        {/* Settings Content */}
-        <div className="lg:col-span-2">
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-6">Profile Settings</h2>
+        <div className="space-y-6 lg:col-span-2">
+          <div className="rounded-lg bg-white p-6 shadow">
+            <h2 className="mb-6 text-xl font-semibold text-gray-900">
+              {activeTab === "profile"
+                ? "Profile Settings"
+                : activeTab === "notifications"
+                  ? "Notification Settings"
+                  : activeTab === "regional"
+                    ? "Regional Settings"
+                    : activeTab === "billing"
+                      ? "Billing Settings"
+                      : "Privacy Settings"}
+            </h2>
 
-            <div className="space-y-6">
-              {/* Profile Picture */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Profile Picture
-                </label>
-                <div className="flex items-center gap-4">
-                  <div className="h-20 w-20 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-2xl font-semibold">
-                    AD
+            {loading ? (
+              <div className="py-10 text-center text-sm text-gray-500">
+                Loading admin settings...
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {activeTab === "profile" ? (
+                  <>
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-gray-700">
+                        Profile Picture
+                      </label>
+                      <div className="flex items-center gap-4">
+                        {formData.profilePhotoUrl ? (
+                          <img
+                            src={formData.profilePhotoUrl}
+                            alt={formData.fullName}
+                            className="h-20 w-20 rounded-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-blue-400 to-purple-500 text-2xl font-semibold text-white">
+                            {initials}
+                          </div>
+                        )}
+                        <input
+                          ref={photoInputRef}
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp,image/gif,image/heic"
+                          className="hidden"
+                          onChange={(event) => void handlePhotoFileChange(event)}
+                        />
+                        <button
+                          type="button"
+                          disabled={uploadingPhoto || loading}
+                          onClick={() => photoInputRef.current?.click()}
+                          className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {uploadingPhoto ? (
+                            <>
+                              <Loader2 size={16} className="animate-spin" />
+                              Uploading...
+                            </>
+                          ) : (
+                            "Change Photo"
+                          )}
+                        </button>
+                        <p className="text-xs text-gray-500">
+                          JPG, PNG, WebP, or GIF — max 5 MB
+                        </p>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-gray-700">
+                        Full Name
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.fullName}
+                        onChange={(event) =>
+                          setFormData((current) => ({
+                            ...current,
+                            fullName: event.target.value,
+                          }))
+                        }
+                        className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-gray-700">
+                        Email Address
+                      </label>
+                      <input
+                        type="email"
+                        value={formData.email}
+                        disabled
+                        className="w-full rounded-lg border border-gray-200 bg-gray-50 px-4 py-2 text-gray-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-gray-700">
+                        Phone Number
+                      </label>
+                      <input
+                        type="tel"
+                        value={formData.phoneNumber}
+                        onChange={(event) =>
+                          setFormData((current) => ({
+                            ...current,
+                            phoneNumber: event.target.value,
+                          }))
+                        }
+                        className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-gray-700">
+                        Role
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.role}
+                        disabled
+                        className="w-full rounded-lg border border-gray-200 bg-gray-50 px-4 py-2 text-gray-500"
+                      />
+                    </div>
+                  </>
+                ) : null}
+
+                {activeTab === "notifications" ? (
+                  <div className="space-y-4">
+                    <label className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium text-gray-900">Platform Notifications</p>
+                        <p className="text-sm text-gray-500">
+                          Receive admin alerts for service requests, reviews, and updates
+                        </p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={formData.notificationsEnabled}
+                        onChange={(event) =>
+                          setFormData((current) => ({
+                            ...current,
+                            notificationsEnabled: event.target.checked,
+                          }))
+                        }
+                        className="h-5 w-5 rounded text-blue-600"
+                      />
+                    </label>
+
+                    <label className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium text-gray-900">Security Alerts</p>
+                        <p className="text-sm text-gray-500">
+                          Receive security-sensitive alerts for admin activity
+                        </p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={formData.securityAlertsEnabled}
+                        onChange={(event) =>
+                          setFormData((current) => ({
+                            ...current,
+                            securityAlertsEnabled: event.target.checked,
+                          }))
+                        }
+                        className="h-5 w-5 rounded text-blue-600"
+                      />
+                    </label>
                   </div>
-                  <button 
-                    onClick={handleChangePhoto}
-                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                ) : null}
+
+                {activeTab === "regional" ? (
+                  <div className="space-y-6">
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-gray-700">
+                        Time Zone
+                      </label>
+                      <select
+                        value={formData.timeZone}
+                        onChange={(event) =>
+                          setFormData((current) => ({
+                            ...current,
+                            timeZone: event.target.value,
+                          }))
+                        }
+                        className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="GMT">GMT</option>
+                        <option value="BST">BST</option>
+                        <option value="CET">CET</option>
+                        <option value="EET">EET</option>
+                        <option value="UTC">UTC</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-gray-700">
+                        Language
+                      </label>
+                      <select
+                        value={formData.language}
+                        onChange={(event) =>
+                          setFormData((current) => ({
+                            ...current,
+                            language: event.target.value,
+                          }))
+                        }
+                        className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="English">English</option>
+                        <option value="Spanish">Spanish</option>
+                        <option value="French">French</option>
+                        <option value="German">German</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-gray-700">
+                        Regional Format
+                      </label>
+                      <select
+                        value={formData.regionalFormat}
+                        onChange={(event) =>
+                          setFormData((current) => ({
+                            ...current,
+                            regionalFormat: event.target.value,
+                          }))
+                        }
+                        className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="en-GB">en-GB</option>
+                        <option value="en-US">en-US</option>
+                        <option value="fr-FR">fr-FR</option>
+                        <option value="de-DE">de-DE</option>
+                      </select>
+                    </div>
+                  </div>
+                ) : null}
+
+                {activeTab === "billing" ? (
+                  <div className="space-y-6">
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-gray-700">
+                        Billing Email
+                      </label>
+                      <input
+                        type="email"
+                        value={formData.billingEmail}
+                        onChange={(event) =>
+                          setFormData((current) => ({
+                            ...current,
+                            billingEmail: event.target.value,
+                          }))
+                        }
+                        className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-500">
+                      Billing methods and payout instruments are managed from the Financial
+                      module. This settings page stores the admin billing contact and
+                      communication preference.
+                    </div>
+                  </div>
+                ) : null}
+
+                {activeTab === "privacy" ? (
+                  <div className="space-y-6">
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-gray-700">
+                        Privacy Mode
+                      </label>
+                      <select
+                        value={formData.privacyMode}
+                        onChange={(event) =>
+                          setFormData((current) => ({
+                            ...current,
+                            privacyMode: event.target.value,
+                          }))
+                        }
+                        className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="STANDARD">STANDARD</option>
+                        <option value="STRICT">STRICT</option>
+                      </select>
+                    </div>
+
+                    <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-500">
+                      Privacy mode controls how aggressively the admin interface limits
+                      sensitive data display and billing-contact exposure across the panel.
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="flex gap-4 pt-4">
+                  <button
+                    onClick={() => void handleSaveChanges()}
+                    disabled={saving}
+                    className="rounded-lg bg-blue-600 px-6 py-2 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    Change Photo
+                    {saving ? "Saving..." : "Save Changes"}
+                  </button>
+                  <button
+                    onClick={handleCancel}
+                    disabled={saving}
+                    className="rounded-lg border border-gray-300 px-6 py-2 text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Cancel
                   </button>
                 </div>
               </div>
-
-              {/* Name */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Full Name
-                </label>
-                <input
-                  type="text"
-                  value={formData.fullName}
-                  onChange={(e) => setFormData({...formData, fullName: e.target.value})}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              {/* Email */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Email Address
-                </label>
-                <input
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => setFormData({...formData, email: e.target.value})}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              {/* Phone */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Phone Number
-                </label>
-                <input
-                  type="tel"
-                  value={formData.phone}
-                  onChange={(e) => setFormData({...formData, phone: e.target.value})}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              {/* Role */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Role
-                </label>
-                <select 
-                  value={formData.role}
-                  onChange={(e) => setFormData({...formData, role: e.target.value})}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option>Super Admin</option>
-                  <option>Admin</option>
-                  <option>Manager</option>
-                </select>
-              </div>
-
-              {/* Time Zone */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Time Zone
-                </label>
-                <select 
-                  value={formData.timezone}
-                  onChange={(e) => setFormData({...formData, timezone: e.target.value})}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option>GMT</option>
-                  <option>BST (British Summer Time)</option>
-                  <option>CET (Central European Time)</option>
-                  <option>EET (Eastern European Time)</option>
-                </select>
-              </div>
-
-              {/* Language */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Language
-                </label>
-                <select 
-                  value={formData.language}
-                  onChange={(e) => setFormData({...formData, language: e.target.value})}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option>English</option>
-                  <option>Spanish</option>
-                  <option>French</option>
-                  <option>German</option>
-                </select>
-              </div>
-
-              {/* Buttons */}
-              <div className="flex gap-4 pt-4">
-                <button 
-                  onClick={handleSaveChanges}
-                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                >
-                  Save Changes
-                </button>
-                <button 
-                  onClick={handleCancel}
-                  className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Additional Settings Sections */}
-          <div className="bg-white rounded-lg shadow p-6 mt-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-6">Email Notifications</h2>
-            
-            <div className="space-y-4">
-              <label className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-gray-900">Service Request Updates</p>
-                  <p className="text-sm text-gray-500">Get notified when service requests are updated</p>
-                </div>
-                <input type="checkbox" defaultChecked className="h-5 w-5 text-blue-600 rounded" />
-              </label>
-
-              <label className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-gray-900">New User Registrations</p>
-                  <p className="text-sm text-gray-500">Receive alerts for new user sign-ups</p>
-                </div>
-                <input type="checkbox" defaultChecked className="h-5 w-5 text-blue-600 rounded" />
-              </label>
-
-              <label className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-gray-900">Maintenance Reminders</p>
-                  <p className="text-sm text-gray-500">Get reminders for scheduled truck maintenance</p>
-                </div>
-                <input type="checkbox" defaultChecked className="h-5 w-5 text-blue-600 rounded" />
-              </label>
-
-              <label className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-gray-900">Weekly Reports</p>
-                  <p className="text-sm text-gray-500">Receive weekly analytics and performance reports</p>
-                </div>
-                <input type="checkbox" className="h-5 w-5 text-blue-600 rounded" />
-              </label>
-            </div>
+            )}
           </div>
         </div>
       </div>

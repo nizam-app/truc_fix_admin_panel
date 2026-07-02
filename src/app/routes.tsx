@@ -1,10 +1,9 @@
-import { createBrowserRouter, Navigate, Outlet, useLocation } from "react-router";
-import { Layout } from "./components/Layout";
-import { Login } from "./components/Login";
+import { createBrowserRouter } from "react-router";
+import { ProtectedLayout } from "./components/ProtectedLayout";
 import { Dashboard } from "./components/Dashboard";
 import { ServiceRequests } from "./components/ServiceRequests";
-import { UsersGrouped } from "./components/UsersGrouped";
-import { FleetPage } from "./components/FleetPage";
+import { Users } from "./components/Users";
+import { Trucks } from "./components/Trucks";
 import { Financial } from "./components/Financial";
 import { ServiceCatalog } from "./components/ServiceCatalog";
 import { Tracking } from "./components/Tracking";
@@ -17,48 +16,48 @@ import { Reviews } from "./components/Reviews";
 import { Notifications } from "./components/Notifications";
 import { Settings } from "./components/Settings";
 import { NotFound } from "./components/NotFound";
-import { isAuthenticated } from "./lib/auth";
-
-function ProtectedRoute() {
-  const location = useLocation();
-
-  if (!isAuthenticated()) {
-    return <Navigate to="/login" replace state={{ from: location }} />;
-  }
-
-  return <Outlet />;
-}
+import { AdminLogin } from "./components/AdminLogin";
+import { ForgotPassword } from "./components/ForgotPassword";
+import { ChangePassword } from "./components/ChangePassword";
+import { ResetPassword } from "./components/ResetPassword";
 
 export const router = createBrowserRouter([
   {
     path: "/login",
-    Component: Login,
+    Component: AdminLogin,
   },
   {
-    Component: ProtectedRoute,
+    path: "/forgot-password",
+    Component: ForgotPassword,
+  },
+  {
+    path: "/change-password",
+    Component: ChangePassword,
+  },
+  {
+    path: "/reset-password",
+    Component: ResetPassword,
+  },
+  {
+    path: "/",
+    Component: ProtectedLayout,
     children: [
-      {
-        path: "/",
-        Component: Layout,
-        children: [
-          { index: true, Component: Dashboard },
-          { path: "services", Component: ServiceRequests },
-          { path: "users", Component: UsersGrouped },
-          { path: "trucks", Component: FleetPage },
-          { path: "financial", Component: Financial },
-          { path: "catalog", Component: ServiceCatalog },
-          { path: "tracking", Component: Tracking },
-          { path: "promotions", Component: Promotions },
-          { path: "support", Component: Support },
-          { path: "disputes", Component: Disputes },
-          { path: "audit", Component: AuditLog },
-          { path: "reports", Component: Reports },
-          { path: "reviews", Component: Reviews },
-          { path: "notifications", Component: Notifications },
-          { path: "settings", Component: Settings },
-          { path: "*", Component: NotFound },
-        ],
-      },
+      { index: true, Component: Dashboard },
+      { path: "services", Component: ServiceRequests },
+      { path: "users", Component: Users },
+      { path: "trucks", Component: Trucks },
+      { path: "financial", Component: Financial },
+      { path: "catalog", Component: ServiceCatalog },
+      { path: "tracking", Component: Tracking },
+      { path: "promotions", Component: Promotions },
+      { path: "support", Component: Support },
+      { path: "disputes", Component: Disputes },
+      { path: "audit", Component: AuditLog },
+      { path: "reports", Component: Reports },
+      { path: "reviews", Component: Reviews },
+      { path: "notifications", Component: Notifications },
+      { path: "settings", Component: Settings },
+      { path: "*", Component: NotFound },
     ],
   },
 ]);

@@ -1,598 +1,1221 @@
-import { useState } from "react";
-import { Search, TruckIcon, Plus, MapPin, Calendar, Gauge, Building2, ChevronDown, ChevronUp, Ban, Trash2, UserX } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import {
+  Ban,
+  Calendar,
+  ChevronDown,
+  ChevronUp,
+  Gauge,
+  MapPin,
+  Plus,
+  Search,
+  Trash2,
+  TruckIcon,
+  UserX,
+} from "lucide-react";
+import { getApiBaseUrl, getStoredAdminSession } from "../auth";
+import { useAdminDialog } from "../adminDialog";
+import { Button } from "./ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog";
+import { Badge } from "./ui/badge";
+import { Separator } from "./ui/separator";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
+import { Textarea } from "./ui/textarea";
 
-interface Company {
-  id: number;
-  name: string;
-  logo: string;
-  contactPerson: string;
-  email: string;
-  phone: string;
-  activeFleet: number;
-  totalFleet: number;
+type FleetVehicle = {
+  _id: string;
+  registration: string;
+  make: string | null;
+  model: string | null;
+  year: number | null;
+  status: "ACTIVE" | "INACTIVE" | string;
+};
+
+type FleetCompany = {
+  _id: string;
+  companyName: string;
+  companyStatus: string;
+  contact: {
+    name: string | null;
+    email: string | null;
+    phone: string | null;
+  };
+  counts: {
+    totalTrucks: number;
+    activeTrucks: number;
+  };
+  vehicles: FleetVehicle[];
+};
+
+type AdminFleetApiResponse = {
   status: string;
-  trucks: Truck[];
-}
+  message: string;
+  data: {
+    items: FleetCompany[];
+    stats: {
+      totalCompanies: number;
+      totalFleet: number;
+      activeTrucks: number;
+      suspendedCompanies: number;
+    };
+  };
+};
 
-interface Truck {
-  id: number;
-  make: string;
-  model: string;
-  plateNumber: string;
-  year: number;
-  mileage: string;
-  status: string;
-  driver: string;
-  lastService: string;
-  nextService: string;
-  location: string;
-}
-
-const initialCompanies: Company[] = [
-  {
-    id: 1,
-    name: "Swift Transport Inc.",
-    logo: "ST",
-    contactPerson: "Robert Johnson",
-    email: "contact@swifttransport.com",
-    phone: "+1 555 0101",
-    activeFleet: 4,
-    totalFleet: 5,
-    status: "Active",
-    trucks: [
-      {
-        id: 1,
-        make: "Volvo",
-        model: "FH16",
-        plateNumber: "ABC123",
-        year: 2022,
-        mileage: "145,234 km",
-        status: "Active",
-        driver: "John Smith",
-        lastService: "2026-02-28",
-        nextService: "2026-04-28",
-        location: "Los Angeles, CA",
-      },
-      {
-        id: 2,
-        make: "Scania",
-        model: "R500",
-        plateNumber: "XYZ789",
-        year: 2023,
-        mileage: "89,432 km",
-        status: "Active",
-        driver: "Sarah Williams",
-        lastService: "2026-03-05",
-        nextService: "2026-05-05",
-        location: "San Francisco, CA",
-      },
-      {
-        id: 3,
-        make: "MAN",
-        model: "TGX",
-        plateNumber: "DEF456",
-        year: 2021,
-        mileage: "203,112 km",
-        status: "In Service",
-        driver: "David Brown",
-        lastService: "2026-03-10",
-        nextService: "2026-04-10",
-        location: "Service Center A",
-      },
-      {
-        id: 5,
-        make: "Volvo",
-        model: "FH16",
-        plateNumber: "JKL012",
-        year: 2022,
-        mileage: "156,789 km",
-        status: "Active",
-        driver: "Michael Wilson",
-        lastService: "2026-03-01",
-        nextService: "2026-05-01",
-        location: "Portland, OR",
-      },
-      {
-        id: 6,
-        make: "Scania",
-        model: "R500",
-        plateNumber: "MNO345",
-        year: 2020,
-        mileage: "287,654 km",
-        status: "Inactive",
-        driver: "Unassigned",
-        lastService: "2026-01-20",
-        nextService: "2026-03-20",
-        location: "Depot B",
-      },
-    ],
-  },
-  {
-    id: 2,
-    name: "Nationwide Logistics",
-    logo: "NL",
-    contactPerson: "Jennifer Martinez",
-    email: "info@nationwidelogistics.com",
-    phone: "+1 555 0202",
-    activeFleet: 3,
-    totalFleet: 3,
-    status: "Active",
-    trucks: [
-      {
-        id: 7,
-        make: "Mercedes",
-        model: "Actros",
-        plateNumber: "GHI789",
-        year: 2023,
-        mileage: "67,890 km",
-        status: "Active",
-        driver: "Emma Davis",
-        lastService: "2026-02-15",
-        nextService: "2026-04-15",
-        location: "Seattle, WA",
-      },
-      {
-        id: 8,
-        make: "Volvo",
-        model: "FH16",
-        plateNumber: "PQR678",
-        year: 2024,
-        mileage: "34,567 km",
-        status: "Active",
-        driver: "Tom Anderson",
-        lastService: "2026-03-08",
-        nextService: "2026-05-08",
-        location: "Denver, CO",
-      },
-      {
-        id: 9,
-        make: "Scania",
-        model: "R450",
-        plateNumber: "STU901",
-        year: 2023,
-        mileage: "98,765 km",
-        status: "Active",
-        driver: "Lisa Chen",
-        lastService: "2026-02-25",
-        nextService: "2026-04-25",
-        location: "Chicago, IL",
-      },
-    ],
-  },
-  {
-    id: 3,
-    name: "Continental Freight",
-    logo: "CF",
-    contactPerson: "Marcus Williams",
-    email: "support@continentalfreight.com",
-    phone: "+1 555 0303",
-    activeFleet: 2,
-    totalFleet: 4,
-    status: "Suspended",
-    trucks: [
-      {
-        id: 10,
-        make: "MAN",
-        model: "TGS",
-        plateNumber: "VWX234",
-        year: 2022,
-        mileage: "178,432 km",
-        status: "Active",
-        driver: "Carlos Rodriguez",
-        lastService: "2026-03-02",
-        nextService: "2026-05-02",
-        location: "Houston, TX",
-      },
-      {
-        id: 11,
-        make: "Mercedes",
-        model: "Arocs",
-        plateNumber: "YZA567",
-        year: 2021,
-        mileage: "234,890 km",
-        status: "In Service",
-        driver: "James Peterson",
-        lastService: "2026-03-12",
-        nextService: "2026-04-12",
-        location: "Service Center B",
-      },
-      {
-        id: 12,
-        make: "Volvo",
-        model: "FM",
-        plateNumber: "BCD890",
-        year: 2023,
-        mileage: "56,234 km",
-        status: "Active",
-        driver: "Sophie Turner",
-        lastService: "2026-02-18",
-        nextService: "2026-04-18",
-        location: "Phoenix, AZ",
-      },
-      {
-        id: 13,
-        make: "Scania",
-        model: "R500",
-        plateNumber: "EFG123",
-        year: 2020,
-        mileage: "312,456 km",
-        status: "Inactive",
-        driver: "Unassigned",
-        lastService: "2026-01-15",
-        nextService: "2026-03-15",
-        location: "Depot C",
-      },
-    ],
-  },
+const statusOptions = [
+  { label: "All companies", value: "ALL" },
+  { label: "Active", value: "ACTIVE" },
+  { label: "Suspended", value: "SUSPENDED" },
 ];
 
+const getCompanyStatusBadge = (status: string) =>
+  status === "SUSPENDED"
+    ? "bg-red-100 text-red-700"
+    : "bg-green-100 text-green-700";
+
+const getVehicleStatusBadge = (status: string) =>
+  status === "ACTIVE"
+    ? "bg-green-100 text-green-700"
+    : "bg-slate-100 text-slate-700";
+
+const initialsFromName = (name: string) =>
+  name
+    .split(" ")
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() || "")
+    .join("");
+
+const vehicleDisplayTitle = (vehicle: FleetVehicle) => {
+  const title = [vehicle.make, vehicle.model].filter(Boolean).join(" ").trim();
+  return title || "Fleet vehicle";
+};
+
 export function Trucks() {
-  const [companies, setCompanies] = useState<Company[]>(initialCompanies);
+  const { confirm, prompt } = useAdminDialog();
+  const [companies, setCompanies] = useState<FleetCompany[]>([]);
+  const [stats, setStats] = useState({
+    totalCompanies: 0,
+    totalFleet: 0,
+    activeTrucks: 0,
+    suspendedCompanies: 0,
+  });
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedCompany, setSelectedCompany] = useState<number | null>(null);
-  const [expandedCompanies, setExpandedCompanies] = useState<number[]>([1]);
-  const [confirmModal, setConfirmModal] = useState<{
-    show: boolean;
-    companyId: number | null;
-    action: "suspend" | "remove" | null;
-    companyName: string;
-  }>({
-    show: false,
-    companyId: null,
-    action: null,
-    companyName: "",
-  });
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [expandedCompanies, setExpandedCompanies] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<string | null>(null);
 
-  const handleAddCompany = () => {
-    console.log("Add new company clicked");
-    alert("Add new company dialog would open here");
-  };
+  const [createCompanyOpen, setCreateCompanyOpen] = useState(false);
+  const [createCompanyEmail, setCreateCompanyEmail] = useState("");
+  const [createCompanyPassword, setCreateCompanyPassword] = useState("");
+  const [createCompanyName, setCreateCompanyName] = useState("");
+  const [createCompanyContactName, setCreateCompanyContactName] = useState("");
+  const [createCompanyContactRole, setCreateCompanyContactRole] = useState("");
+  const [createCompanyPhone, setCreateCompanyPhone] = useState("");
+  const [createCompanyRegNumber, setCreateCompanyRegNumber] = useState("");
+  const [createCompanyVatNumber, setCreateCompanyVatNumber] = useState("");
+  const [createCompanyFleetSize, setCreateCompanyFleetSize] = useState("");
+  const [createCompanyBillingAddress, setCreateCompanyBillingAddress] =
+    useState("");
 
-  const handleAddTruck = (companyId: number, companyName: string) => {
-    console.log(`Add truck to ${companyName} (ID: ${companyId})`);
-    alert(`Add truck to ${companyName} dialog would open here`);
-  };
+  const [addVehicleOpen, setAddVehicleOpen] = useState(false);
+  const [addVehicleCompany, setAddVehicleCompany] =
+    useState<FleetCompany | null>(null);
+  const [addVehicleRegistration, setAddVehicleRegistration] = useState("");
+  const [addVehicleType, setAddVehicleType] = useState("");
+  const [addVehicleMake, setAddVehicleMake] = useState("");
+  const [addVehicleModel, setAddVehicleModel] = useState("");
+  const [addVehicleYear, setAddVehicleYear] = useState("");
+  const [addVehicleVin, setAddVehicleVin] = useState("");
 
-  const handleViewTruckDetails = (truck: Truck, companyName: string) => {
-    console.log(`View details for ${truck.make} ${truck.model} - ${truck.plateNumber}`);
-    alert(`View details for ${truck.make} ${truck.model} (${truck.plateNumber}) from ${companyName}`);
-  };
+  const [vehicleDetailsOpen, setVehicleDetailsOpen] = useState(false);
+  const [vehicleDetailsCompany, setVehicleDetailsCompany] =
+    useState<FleetCompany | null>(null);
+  const [vehicleDetailsVehicle, setVehicleDetailsVehicle] =
+    useState<FleetVehicle | null>(null);
 
-  const toggleCompany = (companyId: number) => {
-    if (expandedCompanies.includes(companyId)) {
-      setExpandedCompanies(expandedCompanies.filter(id => id !== companyId));
-    } else {
-      setExpandedCompanies([...expandedCompanies, companyId]);
+  const session = getStoredAdminSession();
+  const accessToken = session?.accessToken;
+  const apiBaseUrl = getApiBaseUrl();
+
+  useEffect(() => {
+    const seededSearch = sessionStorage.getItem("truckfix_admin_fleet_search");
+    if (seededSearch) {
+      setSearchTerm(seededSearch);
+      sessionStorage.removeItem("truckfix_admin_fleet_search");
     }
-  };
+  }, []);
 
-  const handleSuspendCompany = (companyId: number) => {
-    setCompanies(companies.map(company => 
-      company.id === companyId 
-        ? { ...company, status: company.status === "Suspended" ? "Active" : "Suspended" }
-        : company
-    ));
-    setConfirmModal({ show: false, companyId: null, action: null, companyName: "" });
-  };
-
-  const handleRemoveCompany = (companyId: number) => {
-    setCompanies(companies.filter(company => company.id !== companyId));
-    setExpandedCompanies(expandedCompanies.filter(id => id !== companyId));
-    setConfirmModal({ show: false, companyId: null, action: null, companyName: "" });
-  };
-
-  const openConfirmModal = (companyId: number, action: "suspend" | "remove", companyName: string, event: React.MouseEvent) => {
-    event.stopPropagation();
-    setConfirmModal({ show: true, companyId, action, companyName });
-  };
-
-  const closeConfirmModal = () => {
-    setConfirmModal({ show: false, companyId: null, action: null, companyName: "" });
-  };
-
-  const confirmAction = () => {
-    if (confirmModal.action === "suspend" && confirmModal.companyId) {
-      handleSuspendCompany(confirmModal.companyId);
-    } else if (confirmModal.action === "remove" && confirmModal.companyId) {
-      handleRemoveCompany(confirmModal.companyId);
+  const fetchFleet = async () => {
+    if (!accessToken) {
+      setError("Your admin session has expired. Please sign in again.");
+      setLoading(false);
+      return;
     }
-  };
 
-  const filteredCompanies = companies.filter((company) => {
-    if (selectedCompany && company.id !== selectedCompany) return false;
-    
-    const matchesSearch = 
-      company.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      company.trucks.some(truck => 
-        truck.make.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        truck.model.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        truck.plateNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        truck.driver.toLowerCase().includes(searchTerm.toLowerCase())
+    setLoading(true);
+    setError(null);
+
+    try {
+      const params = new URLSearchParams();
+      if (searchTerm.trim()) params.set("search", searchTerm.trim());
+      if (statusFilter !== "ALL") params.set("status", statusFilter);
+
+      const response = await fetch(
+        `${apiBaseUrl}/admin/fleet${params.toString() ? `?${params}` : ""}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
       );
-    
-    return matchesSearch;
-  });
 
-  const totalTrucks = companies.reduce((sum, company) => sum + company.totalFleet, 0);
-  const totalActive = companies.reduce((sum, company) => 
-    sum + company.trucks.filter(t => t.status === "Active").length, 0
-  );
-  const totalInService = companies.reduce((sum, company) => 
-    sum + company.trucks.filter(t => t.status === "In Service").length, 0
-  );
-  const totalInactive = companies.reduce((sum, company) => 
-    sum + company.trucks.filter(t => t.status === "Inactive").length, 0
-  );
+      const payload = (await response.json()) as AdminFleetApiResponse & {
+        message?: string;
+      };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "Active":
-        return "bg-green-100 text-green-800";
-      case "In Service":
-        return "bg-orange-100 text-orange-800";
-      case "Inactive":
-      case "Suspended":
-        return "bg-gray-100 text-gray-800";
-      default:
-        return "bg-gray-100 text-gray-800";
+      if (!response.ok) {
+        throw new Error(payload.message || "Unable to load fleet companies.");
+      }
+
+      setCompanies(payload.data.items || []);
+      setStats(
+        payload.data.stats || {
+          totalCompanies: 0,
+          totalFleet: 0,
+          activeTrucks: 0,
+          suspendedCompanies: 0,
+        }
+      );
+      setExpandedCompanies((current) => {
+        const next = current.filter((id) =>
+          payload.data.items.some((item) => item._id === id)
+        );
+        if (next.length > 0) return next;
+        if (payload.data.items[0]?._id) return [payload.data.items[0]._id];
+        return [];
+      });
+    } catch (fetchError) {
+      setError(
+        fetchError instanceof Error
+          ? fetchError.message
+          : "Unable to load fleet companies."
+      );
+      setCompanies([]);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const getCompanyStatusColor = (status: string) => {
-    return status === "Suspended" 
-      ? "bg-red-100 text-red-800" 
-      : "bg-green-100 text-green-800";
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      void fetchFleet();
+    }, 200);
+    return () => window.clearTimeout(timeout);
+  }, [searchTerm, statusFilter]);
+
+  const toggleCompany = (companyId: string) => {
+    setExpandedCompanies((current) =>
+      current.includes(companyId)
+        ? current.filter((id) => id !== companyId)
+        : [...current, companyId]
+    );
+  };
+
+  const resetCreateCompanyForm = () => {
+    setCreateCompanyEmail("");
+    setCreateCompanyPassword("");
+    setCreateCompanyName("");
+    setCreateCompanyContactName("");
+    setCreateCompanyContactRole("");
+    setCreateCompanyPhone("");
+    setCreateCompanyRegNumber("");
+    setCreateCompanyVatNumber("");
+    setCreateCompanyFleetSize("");
+    setCreateCompanyBillingAddress("");
+  };
+
+  const handleCreateCompany = async () => {
+    if (!accessToken) return;
+    const email = createCompanyEmail.trim().toLowerCase();
+    const password = createCompanyPassword.trim();
+    const companyName = createCompanyName.trim();
+
+    if (!email) {
+      setError("Email is required.");
+      return;
+    }
+    if (!password || password.length < 8) {
+      setError("Temporary password must be at least 8 characters.");
+      return;
+    }
+    if (!companyName) {
+      setError("Company name is required.");
+      return;
+    }
+
+    const contactName = createCompanyContactName.trim();
+    const contactRole = createCompanyContactRole.trim();
+    const phone = createCompanyPhone.trim();
+    const regNumber = createCompanyRegNumber.trim();
+    const vatNumber = createCompanyVatNumber.trim();
+    const fleetSize = createCompanyFleetSize.trim();
+    const billingAddress = createCompanyBillingAddress.trim();
+
+    setSubmitting(true);
+    setError(null);
+    setFeedback(null);
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/admin/fleet`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          email,
+          password,
+          companyName,
+          contactName,
+          contactRole,
+          phone,
+          regNumber,
+          vatNumber,
+          fleetSize,
+          billingAddress,
+        }),
+      });
+
+      const payload = (await response.json()) as {
+        status: string;
+        message?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(payload.message || "Unable to create fleet company.");
+      }
+
+      setFeedback("Fleet company created successfully.");
+      setCreateCompanyOpen(false);
+      resetCreateCompanyForm();
+      await fetchFleet();
+    } catch (createError) {
+      setError(
+        createError instanceof Error
+          ? createError.message
+          : "Unable to create fleet company."
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleUpdateCompanyStatus = async (
+    company: FleetCompany,
+    nextStatus: "ACTIVE" | "SUSPENDED"
+  ) => {
+    if (!accessToken) return;
+
+    setSubmitting(true);
+    setError(null);
+    setFeedback(null);
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/admin/fleet/${company._id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+
+      const payload = (await response.json()) as {
+        status: string;
+        message?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(payload.message || "Unable to update fleet company.");
+      }
+
+      setFeedback(
+        nextStatus === "ACTIVE"
+          ? "Fleet company activated."
+          : "Fleet company suspended."
+      );
+      await fetchFleet();
+    } catch (updateError) {
+      setError(
+        updateError instanceof Error
+          ? updateError.message
+          : "Unable to update fleet company."
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleRemoveCompany = async (company: FleetCompany) => {
+    if (!accessToken) return;
+
+    const confirmed = await confirm({
+      title: "Remove fleet company",
+      message: `Remove ${company.companyName}?\n\nThis will delete the fleet company account.\nIt will fail if the company still has linked jobs, vehicles, or members.`,
+      confirmLabel: "Remove",
+      destructive: true,
+    });
+    if (!confirmed) return;
+
+    setSubmitting(true);
+    setError(null);
+    setFeedback(null);
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/admin/fleet/${company._id}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      const payload = (await response.json()) as { message?: string };
+      if (!response.ok) {
+        throw new Error(payload?.message || "Unable to remove fleet company.");
+      }
+
+      setFeedback("Fleet company removed.");
+      await fetchFleet();
+    } catch (removeError) {
+      setError(
+        removeError instanceof Error
+          ? removeError.message
+          : "Unable to remove fleet company."
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const resetAddVehicleForm = () => {
+    setAddVehicleRegistration("");
+    setAddVehicleType("");
+    setAddVehicleMake("");
+    setAddVehicleModel("");
+    setAddVehicleYear("");
+    setAddVehicleVin("");
+  };
+
+  const handleAddVehicle = async (company: FleetCompany) => {
+    if (!accessToken) return;
+    const registration = addVehicleRegistration.trim();
+    if (!registration) {
+      setError("Vehicle registration is required.");
+      return;
+    }
+
+    const type = addVehicleType.trim();
+    const make = addVehicleMake.trim();
+    const model = addVehicleModel.trim();
+    const yearRaw = addVehicleYear.trim();
+    const vin = addVehicleVin.trim();
+
+    setSubmitting(true);
+    setError(null);
+    setFeedback(null);
+
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/admin/fleet/${company._id}/vehicles`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            registration,
+            type,
+            make,
+            model,
+            year: yearRaw ? Number(yearRaw) : undefined,
+            vin,
+            isActive: true,
+          }),
+        }
+      );
+
+      const payload = (await response.json()) as {
+        status: string;
+        message?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(payload.message || "Unable to add vehicle.");
+      }
+
+      setFeedback(`Vehicle added to ${company.companyName}.`);
+      setAddVehicleOpen(false);
+      setAddVehicleCompany(null);
+      resetAddVehicleForm();
+      setExpandedCompanies((current) =>
+        current.includes(company._id) ? current : [...current, company._id]
+      );
+      await fetchFleet();
+    } catch (createError) {
+      setError(
+        createError instanceof Error
+          ? createError.message
+          : "Unable to add vehicle."
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleUpdateVehicle = async (
+    company: FleetCompany,
+    vehicle: FleetVehicle
+  ) => {
+    if (!accessToken) return;
+
+    const registrationRaw = await prompt({
+      title: "Update vehicle",
+      label: "Registration",
+      defaultValue: vehicle.registration,
+    });
+    if (registrationRaw === null) return;
+    const registration = registrationRaw.trim() || vehicle.registration;
+
+    const typeRaw = await prompt({
+      title: "Update vehicle",
+      label: "Vehicle type",
+      defaultValue: vehicle.type || "",
+    });
+    if (typeRaw === null) return;
+    const type = typeRaw.trim();
+
+    const makeRaw = await prompt({
+      title: "Update vehicle",
+      label: "Make",
+      defaultValue: vehicle.make || "",
+    });
+    if (makeRaw === null) return;
+    const make = makeRaw.trim() || vehicle.make;
+
+    const modelRaw = await prompt({
+      title: "Update vehicle",
+      label: "Model",
+      defaultValue: vehicle.model || "",
+    });
+    if (modelRaw === null) return;
+    const model = modelRaw.trim() || vehicle.model;
+
+    const yearRawInput = await prompt({
+      title: "Update vehicle",
+      label: "Year",
+      defaultValue: vehicle.year ? String(vehicle.year) : "",
+    });
+    if (yearRawInput === null) return;
+    const yearRaw = yearRawInput.trim();
+
+    const currentActive = vehicle.status === "ACTIVE";
+    const keepActive = await confirm({
+      title: "Vehicle status",
+      message: currentActive
+        ? "Keep this vehicle active? Choose Cancel to mark inactive."
+        : "Mark this vehicle active? Choose Cancel to keep inactive.",
+      confirmLabel: currentActive ? "Keep active" : "Mark active",
+      cancelLabel: currentActive ? "Mark inactive" : "Keep inactive",
+    });
+
+    setSubmitting(true);
+    setError(null);
+    setFeedback(null);
+
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/admin/fleet/${company._id}/vehicles/${vehicle._id}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            registration,
+            type,
+            make,
+            model,
+            year: yearRaw ? Number(yearRaw) : undefined,
+            isActive: currentActive ? keepActive : keepActive,
+          }),
+        }
+      );
+
+      const payload = (await response.json()) as {
+        status: string;
+        message?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(payload.message || "Unable to update vehicle.");
+      }
+
+      setFeedback(`Vehicle ${registration} updated.`);
+      await fetchFleet();
+    } catch (updateError) {
+      setError(
+        updateError instanceof Error
+          ? updateError.message
+          : "Unable to update vehicle."
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleViewVehicle = (company: FleetCompany, vehicle: FleetVehicle) => {
+    setVehicleDetailsCompany(company);
+    setVehicleDetailsVehicle(vehicle);
+    setVehicleDetailsOpen(true);
   };
 
   return (
     <div>
+      <Dialog
+        open={createCompanyOpen}
+        onOpenChange={(nextOpen) => {
+          setCreateCompanyOpen(nextOpen);
+          if (!nextOpen) resetCreateCompanyForm();
+        }}
+      >
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Create fleet company</DialogTitle>
+            <DialogDescription>
+              Create a new fleet company account and set a temporary password.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-5">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Email</Label>
+                <Input
+                  value={createCompanyEmail}
+                  onChange={(e) => setCreateCompanyEmail(e.target.value)}
+                  placeholder="fleet@company.com"
+                  inputMode="email"
+                  autoComplete="email"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Temporary password</Label>
+                <Input
+                  type="password"
+                  value={createCompanyPassword}
+                  onChange={(e) => setCreateCompanyPassword(e.target.value)}
+                  placeholder="Min 8 chars"
+                  autoComplete="new-password"
+                />
+              </div>
+            </div>
+
+            <div className="rounded-lg border bg-white p-4">
+              <p className="mb-4 text-sm font-semibold text-gray-900">
+                Company details
+              </p>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-2 sm:col-span-2">
+                  <Label>Company name</Label>
+                  <Input
+                    value={createCompanyName}
+                    onChange={(e) => setCreateCompanyName(e.target.value)}
+                    placeholder="Logistix Transport"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Contact name</Label>
+                  <Input
+                    value={createCompanyContactName}
+                    onChange={(e) => setCreateCompanyContactName(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Contact role</Label>
+                  <Input
+                    value={createCompanyContactRole}
+                    onChange={(e) => setCreateCompanyContactRole(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Phone</Label>
+                  <Input
+                    value={createCompanyPhone}
+                    onChange={(e) => setCreateCompanyPhone(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Fleet size</Label>
+                  <Input
+                    value={createCompanyFleetSize}
+                    onChange={(e) => setCreateCompanyFleetSize(e.target.value)}
+                    inputMode="numeric"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Registration number</Label>
+                  <Input
+                    value={createCompanyRegNumber}
+                    onChange={(e) => setCreateCompanyRegNumber(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>VAT number</Label>
+                  <Input
+                    value={createCompanyVatNumber}
+                    onChange={(e) => setCreateCompanyVatNumber(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2 sm:col-span-2">
+                  <Label>Billing address</Label>
+                  <Textarea
+                    value={createCompanyBillingAddress}
+                    onChange={(e) => setCreateCompanyBillingAddress(e.target.value)}
+                    placeholder="Street, city, postcode"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setCreateCompanyOpen(false)}
+              disabled={submitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-blue-600/30"
+              onClick={() => void handleCreateCompany()}
+              disabled={submitting}
+            >
+              {submitting ? "Creating..." : "Create company"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={addVehicleOpen}
+        onOpenChange={(nextOpen) => {
+          setAddVehicleOpen(nextOpen);
+          if (!nextOpen) {
+            setAddVehicleCompany(null);
+            resetAddVehicleForm();
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Add truck to fleet</DialogTitle>
+            <DialogDescription>
+              {addVehicleCompany
+                ? `Add a vehicle to ${addVehicleCompany.companyName}.`
+                : "Add a vehicle to the selected fleet company."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-5">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Registration</Label>
+                <Input
+                  value={addVehicleRegistration}
+                  onChange={(e) => setAddVehicleRegistration(e.target.value)}
+                  placeholder="ABC123"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Type</Label>
+                <Input
+                  value={addVehicleType}
+                  onChange={(e) => setAddVehicleType(e.target.value)}
+                  placeholder="Truck / Trailer"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Make</Label>
+                <Input
+                  value={addVehicleMake}
+                  onChange={(e) => setAddVehicleMake(e.target.value)}
+                  placeholder="Volvo"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Model</Label>
+                <Input
+                  value={addVehicleModel}
+                  onChange={(e) => setAddVehicleModel(e.target.value)}
+                  placeholder="FH16"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Year</Label>
+                <Input
+                  value={addVehicleYear}
+                  onChange={(e) => setAddVehicleYear(e.target.value)}
+                  inputMode="numeric"
+                  placeholder="2023"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>VIN (optional)</Label>
+                <Input
+                  value={addVehicleVin}
+                  onChange={(e) => setAddVehicleVin(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setAddVehicleOpen(false)}
+              disabled={submitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-blue-600/30"
+              onClick={() => {
+                if (!addVehicleCompany) return;
+                void handleAddVehicle(addVehicleCompany);
+              }}
+              disabled={submitting || !addVehicleCompany}
+            >
+              {submitting ? "Adding..." : "Add truck"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={vehicleDetailsOpen}
+        onOpenChange={(nextOpen) => {
+          setVehicleDetailsOpen(nextOpen);
+          if (!nextOpen) {
+            setVehicleDetailsCompany(null);
+            setVehicleDetailsVehicle(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Vehicle details</DialogTitle>
+            <DialogDescription>
+              View key information for this fleet vehicle.
+            </DialogDescription>
+          </DialogHeader>
+
+          {vehicleDetailsVehicle && vehicleDetailsCompany ? (
+            <div className="grid gap-5">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <div className="rounded-lg bg-blue-100 p-2">
+                    <TruckIcon className="text-blue-600" size={20} />
+                  </div>
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-base font-semibold text-gray-900">
+                        {vehicleDisplayTitle(vehicleDetailsVehicle)}
+                      </p>
+                      <Badge
+                        variant={
+                          vehicleDetailsVehicle.status === "ACTIVE"
+                            ? "secondary"
+                            : "outline"
+                        }
+                        className={
+                          vehicleDetailsVehicle.status === "ACTIVE"
+                            ? "bg-green-100 text-green-700 border-transparent"
+                            : "bg-slate-100 text-slate-700 border-transparent"
+                        }
+                      >
+                        {vehicleDetailsVehicle.status === "ACTIVE"
+                          ? "Active"
+                          : "Inactive"}
+                      </Badge>
+                    </div>
+                    <p className="mt-0.5 text-sm text-gray-500">
+                      Registration:{" "}
+                      <span className="font-medium text-gray-900">
+                        {vehicleDetailsVehicle.registration}
+                      </span>
+                    </p>
+                    <p className="mt-0.5 text-sm text-gray-500">
+                      Company:{" "}
+                      <span className="font-medium text-gray-900">
+                        {vehicleDetailsCompany.companyName}
+                      </span>
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="rounded-lg border bg-white p-4">
+                  <p className="text-xs font-medium text-gray-500">Year</p>
+                  <p className="mt-1 text-sm font-semibold text-gray-900">
+                    {vehicleDetailsVehicle.year ?? "Not set"}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-white p-4">
+                  <p className="text-xs font-medium text-gray-500">Make</p>
+                  <p className="mt-1 text-sm font-semibold text-gray-900">
+                    {vehicleDetailsVehicle.make || "Not set"}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-white p-4">
+                  <p className="text-xs font-medium text-gray-500">Model</p>
+                  <p className="mt-1 text-sm font-semibold text-gray-900">
+                    {vehicleDetailsVehicle.model || "Not set"}
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-white p-4">
+                  <p className="text-xs font-medium text-gray-500">Status</p>
+                  <p className="mt-1 text-sm font-semibold text-gray-900">
+                    {vehicleDetailsVehicle.status === "ACTIVE"
+                      ? "Active"
+                      : "Inactive"}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-lg border bg-white p-6 text-sm text-gray-600">
+              No vehicle selected.
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setVehicleDetailsOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="mb-8 flex flex-col md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Fleet Management by Company</h1>
-          <p className="text-gray-600 mt-1">Monitor fleets organized by company</p>
+          <h1 className="text-3xl font-bold text-gray-900">
+            Fleet Management by Company
+          </h1>
+          <p className="mt-1 text-gray-600">
+            Monitor fleet companies, review active vehicles, and keep truck records
+            current
+          </p>
         </div>
-        <button className="mt-4 md:mt-0 flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700" onClick={handleAddCompany}>
+        <Button
+          className="mt-4 bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-blue-600/30 md:mt-0"
+          onClick={() => setCreateCompanyOpen(true)}
+          disabled={submitting}
+        >
           <Plus size={20} />
           Add New Company
-        </button>
+        </Button>
       </div>
 
-      {/* Search and Filter */}
-      <div className="bg-white rounded-lg shadow p-6 mb-6">
-        <div className="flex flex-col md:flex-row gap-4">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+      {(error || feedback) && (
+        <div
+          className={`mb-6 rounded-lg border px-4 py-3 text-sm ${
+            error
+              ? "border-red-200 bg-red-50 text-red-700"
+              : "border-green-200 bg-green-50 text-green-700"
+          }`}
+        >
+          {error || feedback}
+        </div>
+      )}
+
+      <div className="mb-6 rounded-lg bg-white p-6 shadow">
+        <div className="flex flex-col gap-4 md:flex-row">
+          <div className="relative flex-1">
+            <Search
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+              size={20}
+            />
             <input
               type="text"
-              placeholder="Search by company name, truck make, model, or plate number..."
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Search by company name, email, phone, or registration..."
+              className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(event) => setSearchTerm(event.target.value)}
             />
           </div>
           <select
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            value={selectedCompany || ""}
-            onChange={(e) => setSelectedCompany(e.target.value ? Number(e.target.value) : null)}
+            className="rounded-lg border border-gray-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value)}
           >
-            <option value="">All Companies</option>
-            {companies.map(company => (
-              <option key={company.id} value={company.id}>{company.name}</option>
+            {statusOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
             ))}
           </select>
         </div>
       </div>
 
-      {/* Stats Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white rounded-lg shadow p-4">
+      <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-4">
+        <div className="rounded-lg bg-white p-4 shadow">
           <p className="text-sm text-gray-600">Total Companies</p>
-          <p className="text-2xl font-bold text-gray-900">{companies.length}</p>
+          <p className="text-2xl font-bold text-gray-900">{stats.totalCompanies}</p>
         </div>
-        <div className="bg-white rounded-lg shadow p-4">
+        <div className="rounded-lg bg-white p-4 shadow">
           <p className="text-sm text-gray-600">Total Fleet</p>
-          <p className="text-2xl font-bold text-gray-900">{totalTrucks}</p>
+          <p className="text-2xl font-bold text-gray-900">{stats.totalFleet}</p>
         </div>
-        <div className="bg-white rounded-lg shadow p-4">
+        <div className="rounded-lg bg-white p-4 shadow">
           <p className="text-sm text-gray-600">Active Trucks</p>
-          <p className="text-2xl font-bold text-green-600">{totalActive}</p>
+          <p className="text-2xl font-bold text-green-600">{stats.activeTrucks}</p>
         </div>
-        <div className="bg-white rounded-lg shadow p-4">
+        <div className="rounded-lg bg-white p-4 shadow">
           <p className="text-sm text-gray-600">Suspended Companies</p>
           <p className="text-2xl font-bold text-red-600">
-            {companies.filter(c => c.status === "Suspended").length}
+            {stats.suspendedCompanies}
           </p>
         </div>
       </div>
 
-      {/* Companies List */}
       <div className="space-y-6">
-        {filteredCompanies.map((company) => (
-          <div key={company.id} className="bg-white rounded-lg shadow overflow-hidden">
-            {/* Company Header */}
-            <div 
-              className={`p-6 ${company.status === "Suspended" ? "bg-gradient-to-r from-gray-500 to-gray-600" : "bg-gradient-to-r from-blue-600 to-blue-700"} text-white cursor-pointer hover:opacity-90 transition-opacity`}
-              onClick={() => toggleCompany(company.id)}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="h-16 w-16 rounded-full bg-white text-blue-600 flex items-center justify-center text-xl font-bold">
-                    {company.logo}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-3">
-                      <h2 className="text-2xl font-bold">{company.name}</h2>
-                      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getCompanyStatusColor(company.status)}`}>
-                        {company.status}
-                      </span>
-                    </div>
-                    <p className="text-blue-100 text-sm mt-1">
-                      {company.contactPerson} • {company.email} • {company.phone}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-6">
-                  <div className="text-center">
-                    <p className="text-3xl font-bold">{company.totalFleet}</p>
-                    <p className="text-blue-100 text-sm">Total Trucks</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-3xl font-bold">{company.activeFleet}</p>
-                    <p className="text-blue-100 text-sm">Active</p>
-                  </div>
-                  
-                  {/* Action Buttons */}
-                  <div className="flex items-center gap-2">
-                    <button 
-                      className="p-2 bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg transition-colors"
-                      onClick={(e) => openConfirmModal(company.id, "suspend", company.name, e)}
-                      title={company.status === "Suspended" ? "Activate Company" : "Suspend Company"}
-                    >
-                      {company.status === "Suspended" ? (
-                        <UserX size={20} />
-                      ) : (
-                        <Ban size={20} />
-                      )}
-                    </button>
-                    <button 
-                      className="p-2 bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg transition-colors"
-                      onClick={(e) => openConfirmModal(company.id, "remove", company.name, e)}
-                      title="Remove Company"
-                    >
-                      <Trash2 size={20} />
-                    </button>
-                  </div>
+        {loading ? (
+          <div className="rounded-lg bg-white p-10 text-center text-sm text-gray-500 shadow">
+            Loading fleet companies...
+          </div>
+        ) : companies.length === 0 ? (
+          <div className="rounded-lg bg-white p-10 text-center text-sm text-gray-500 shadow">
+            No fleet companies matched this search yet.
+          </div>
+        ) : (
+          companies.map((company) => {
+            const isExpanded = expandedCompanies.includes(company._id);
 
-                  {expandedCompanies.includes(company.id) ? (
-                    <ChevronUp size={24} />
-                  ) : (
-                    <ChevronDown size={24} />
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Company Fleet - Expandable */}
-            {expandedCompanies.includes(company.id) && (
-              <div className="p-6 bg-gray-50">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-gray-900">Fleet Vehicles</h3>
-                  <button className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm" onClick={() => handleAddTruck(company.id, company.name)}>
-                    <Plus size={16} />
-                    Add Truck to Fleet
-                  </button>
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {company.trucks.map((truck) => (
-                    <div key={truck.id} className="bg-white rounded-lg shadow hover:shadow-lg transition-shadow">
-                      <div className="p-4">
-                        {/* Header */}
-                        <div className="flex items-start justify-between mb-3">
-                          <div className="flex items-center gap-2">
-                            <div className="bg-blue-100 p-2 rounded-lg">
-                              <TruckIcon className="text-blue-600" size={20} />
-                            </div>
-                            <div>
-                              <h4 className="font-semibold text-gray-900 text-sm">
-                                {truck.make} {truck.model}
-                              </h4>
-                              <p className="text-xs text-gray-500">{truck.plateNumber}</p>
-                            </div>
-                          </div>
-                          <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(truck.status)}`}>
-                            {truck.status}
+            return (
+              <div
+                key={company._id}
+                className="overflow-hidden rounded-lg bg-white shadow"
+              >
+                <div
+                  className={`cursor-pointer p-6 text-white transition-opacity hover:opacity-95 ${
+                    company.companyStatus === "SUSPENDED"
+                      ? "bg-slate-700"
+                      : "bg-blue-600"
+                  }`}
+                  onClick={() => toggleCompany(company._id)}
+                >
+                  <div className="flex items-center justify-between gap-6">
+                    <div className="flex items-center gap-4">
+                      <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white text-xl font-bold text-blue-700">
+                        {initialsFromName(company.companyName)}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-3">
+                          <h2 className="text-2xl font-bold">
+                            {company.companyName}
+                          </h2>
+                          <span
+                            className={`rounded-full px-2 py-1 text-xs font-semibold ${getCompanyStatusBadge(
+                              company.companyStatus
+                            )}`}
+                          >
+                            {company.companyStatus === "SUSPENDED"
+                              ? "Suspended"
+                              : "Active"}
                           </span>
                         </div>
-
-                        {/* Details */}
-                        <div className="space-y-2 mb-3">
-                          <div className="flex items-center gap-2 text-xs text-gray-600">
-                            <Gauge size={14} />
-                            <span>{truck.mileage}</span>
-                            <span className="text-gray-400">•</span>
-                            <span>{truck.year}</span>
-                          </div>
-                          <div className="flex items-center gap-2 text-xs text-gray-600">
-                            <MapPin size={14} />
-                            <span>{truck.location}</span>
-                          </div>
-                          <div className="flex items-center gap-2 text-xs text-gray-600">
-                            <Calendar size={14} />
-                            <span>Next: {truck.nextService}</span>
-                          </div>
-                        </div>
-
-                        {/* Driver */}
-                        <div className="border-t pt-3">
-                          <p className="text-xs text-gray-500 mb-1">Driver</p>
-                          <p className="text-sm font-medium text-gray-900">{truck.driver}</p>
-                        </div>
-                      </div>
-
-                      {/* Footer */}
-                      <div className="border-t px-4 py-2 bg-gray-50 rounded-b-lg">
-                        <button className="text-xs text-blue-600 hover:text-blue-700 font-medium" onClick={() => handleViewTruckDetails(truck, company.name)}>
-                          View Details →
-                        </button>
+                        <p className="mt-1 text-sm text-blue-100">
+                          {company.contact.name || "No contact set"} ·{" "}
+                          {company.contact.email || "No email"} ·{" "}
+                          {company.contact.phone || "No phone"}
+                        </p>
                       </div>
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
 
-      {/* Confirmation Modal */}
-      {confirmModal.show && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className={`p-3 rounded-full ${confirmModal.action === "remove" ? "bg-red-100" : "bg-orange-100"}`}>
-                {confirmModal.action === "remove" ? (
-                  <Trash2 className="text-red-600" size={24} />
-                ) : (
-                  <Ban className="text-orange-600" size={24} />
+                    <div className="flex items-center gap-6">
+                      <div className="text-center">
+                        <p className="text-3xl font-bold">
+                          {company.counts.totalTrucks}
+                        </p>
+                        <p className="text-sm text-blue-100">Total Trucks</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-3xl font-bold">
+                          {company.counts.activeTrucks}
+                        </p>
+                        <p className="text-sm text-blue-100">Active</p>
+                      </div>
+
+                      <div
+                        className="flex items-center gap-2"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <button
+                          className="rounded-lg bg-white/20 p-2 transition-colors hover:bg-white/30"
+                          title={
+                            company.companyStatus === "SUSPENDED"
+                              ? "Activate company"
+                              : "Suspend company"
+                          }
+                          onClick={() =>
+                            void handleUpdateCompanyStatus(
+                              company,
+                              company.companyStatus === "SUSPENDED"
+                                ? "ACTIVE"
+                                : "SUSPENDED"
+                            )
+                          }
+                        >
+                          {company.companyStatus === "SUSPENDED" ? (
+                            <UserX size={20} />
+                          ) : (
+                            <Ban size={20} />
+                          )}
+                        </button>
+                        <button
+                          className="rounded-lg bg-white/20 p-2 transition-colors hover:bg-white/30 disabled:opacity-60"
+                          title="Remove company"
+                          onClick={() => void handleRemoveCompany(company)}
+                          disabled={submitting}
+                        >
+                          <Trash2 size={20} />
+                        </button>
+
+                        {isExpanded ? (
+                          <ChevronUp size={24} />
+                        ) : (
+                          <ChevronDown size={24} />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {isExpanded && (
+                  <div className="bg-gray-50 p-6">
+                    <div className="mb-4 flex items-center justify-between">
+                      <h3 className="text-lg font-semibold text-gray-900">
+                        Fleet Vehicles
+                      </h3>
+                      <button
+                        className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        onClick={() => {
+                          setAddVehicleCompany(company);
+                          setAddVehicleOpen(true);
+                        }}
+                        disabled={submitting}
+                      >
+                        <Plus size={16} />
+                        Add Truck to Fleet
+                      </button>
+                    </div>
+
+                    {company.vehicles.length === 0 ? (
+                      <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-gray-500">
+                        No vehicles are attached to this fleet yet.
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+                        {company.vehicles.map((vehicle) => (
+                          <div
+                            key={vehicle._id}
+                            className="rounded-lg bg-white shadow transition-shadow hover:shadow-lg"
+                          >
+                            <div className="p-4">
+                              <div className="mb-3 flex items-start justify-between">
+                                <div className="flex items-center gap-2">
+                                  <div className="rounded-lg bg-blue-100 p-2">
+                                    <TruckIcon className="text-blue-600" size={20} />
+                                  </div>
+                                  <div>
+                                    <h4 className="text-sm font-semibold text-gray-900">
+                                      {vehicleDisplayTitle(vehicle)}
+                                    </h4>
+                                    <p className="text-xs text-gray-500">
+                                      {vehicle.registration}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <span
+                                  className={`rounded-full px-2 py-1 text-xs font-semibold ${getVehicleStatusBadge(
+                                    vehicle.status
+                                  )}`}
+                                >
+                                  {vehicle.status === "ACTIVE" ? "Active" : "Inactive"}
+                                </span>
+                              </div>
+
+                              <div className="mb-3 space-y-2">
+                                <div className="flex items-center gap-2 text-xs text-gray-600">
+                                  <Gauge size={14} />
+                                  <span>
+                                    {vehicle.year ? `${vehicle.year}` : "Year not set"}
+                                  </span>
+                                  <span className="text-gray-400">·</span>
+                                  <span>{vehicle.make || "Make not set"}</span>
+                                </div>
+                                <div className="flex items-center gap-2 text-xs text-gray-600">
+                                  <MapPin size={14} />
+                                  <span>{company.companyName}</span>
+                                </div>
+                                <div className="flex items-center gap-2 text-xs text-gray-600">
+                                  <Calendar size={14} />
+                                  <span>
+                                    Type: {vehicle.model || vehicle.make || "Standard"}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="rounded-b-lg border-t bg-gray-50 px-4 py-2">
+                              <button
+                                className="text-xs font-medium text-blue-600 hover:text-blue-700"
+                                onClick={() => handleViewVehicle(company, vehicle)}
+                              >
+                                View Details →
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">
-                  {confirmModal.action === "remove" ? "Remove Company" : "Suspend Company"}
-                </h3>
-                <p className="text-sm text-gray-500">This action requires confirmation</p>
-              </div>
-            </div>
-            
-            <p className="text-gray-700 mb-6">
-              {confirmModal.action === "remove" 
-                ? `Are you sure you want to permanently remove "${confirmModal.companyName}" and all its fleet? This action cannot be undone.`
-                : `Are you sure you want to ${companies.find(c => c.id === confirmModal.companyId)?.status === "Suspended" ? "activate" : "suspend"} "${confirmModal.companyName}"?`
-              }
-            </p>
-            
-            <div className="flex gap-3">
-              <button
-                onClick={confirmAction}
-                className={`flex-1 px-4 py-2 rounded-lg font-medium text-white ${
-                  confirmModal.action === "remove" 
-                    ? "bg-red-600 hover:bg-red-700" 
-                    : "bg-orange-600 hover:bg-orange-700"
-                }`}
-              >
-                {confirmModal.action === "remove" ? "Remove" : companies.find(c => c.id === confirmModal.companyId)?.status === "Suspended" ? "Activate" : "Suspend"}
-              </button>
-              <button
-                onClick={closeConfirmModal}
-                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+            );
+          })
+        )}
+      </div>
     </div>
   );
 }

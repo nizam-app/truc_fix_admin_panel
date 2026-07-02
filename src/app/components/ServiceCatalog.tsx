@@ -1,149 +1,113 @@
-import { useState } from "react";
-import { Search, Plus, MoreVertical, Eye, Edit, Trash2, Copy, DollarSign, Clock, Wrench, CircleDot, Battery, Key, Zap as Lightning, Thermometer, Disc, Fuel, Truck, Lock, ClipboardList } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  Battery,
+  CircleDot,
+  Clock,
+  Copy,
+  Disc,
+  DollarSign,
+  Edit,
+  Eye,
+  Fuel,
+  Key,
+  Lock,
+  MoreVertical,
+  Plus,
+  Search,
+  Thermometer,
+  Trash2,
+  Truck,
+  Wrench,
+  Zap as Lightning,
+  ClipboardList,
+} from "lucide-react";
+import { getApiBaseUrl, getStoredAdminSession } from "../auth";
+import { useAdminDialog } from "../adminDialog";
+import { Button } from "./ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
+import { Textarea } from "./ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
+import { Badge } from "./ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 
-const services = [
-  { 
-    id: 1, 
-    name: "Flat / Damaged Tyre", 
-    category: "Roadside", 
-    basePrice: 85, 
-    duration: "30-45 min", 
-    description: "Tyre replacement or repair for flat or damaged tyres",
-    status: "Active", 
-    bookings: 124,
-    icon: "tire"
-  },
-  { 
-    id: 2, 
-    name: "Battery Failure / Jump Start", 
-    category: "Electrical", 
-    basePrice: 95, 
-    duration: "20-30 min", 
-    description: "Jump start service or battery replacement",
-    status: "Active", 
-    bookings: 156,
-    icon: "battery"
-  },
-  { 
-    id: 3, 
-    name: "Engine Won't Start", 
-    category: "Engine", 
-    basePrice: 150, 
-    duration: "1-2 hours", 
-    description: "Diagnostics and repair for engine starting issues",
-    status: "Active", 
-    bookings: 89,
-    icon: "key"
-  },
-  { 
-    id: 4, 
-    name: "Breakdown (Unknown Issue)", 
-    category: "Emergency", 
-    basePrice: 180, 
-    duration: "1-3 hours", 
-    description: "Emergency diagnostics for unknown vehicle issues",
-    status: "Active", 
-    bookings: 67,
-    icon: "lightning"
-  },
-  { 
-    id: 5, 
-    name: "Overheating", 
-    category: "Cooling", 
-    basePrice: 220, 
-    duration: "1-2 hours", 
-    description: "Coolant system check and overheating repair",
-    status: "Active", 
-    bookings: 45,
-    icon: "thermometer"
-  },
-  { 
-    id: 6, 
-    name: "Brake Problem", 
-    category: "Brakes", 
-    basePrice: 850, 
-    duration: "2-3 hours", 
-    description: "Brake system diagnostics and repair",
-    status: "Active", 
-    bookings: 78,
-    icon: "disc"
-  },
-  { 
-    id: 7, 
-    name: "Electrical Issue", 
-    category: "Electrical", 
-    basePrice: 195, 
-    duration: "1-2 hours", 
-    description: "Electrical system diagnostics and repair",
-    status: "Active", 
-    bookings: 52,
-    icon: "lightning"
-  },
-  { 
-    id: 8, 
-    name: "Fuel Issue (Wrong Fuel / Empty)", 
-    category: "Fuel", 
-    basePrice: 145, 
-    duration: "30-60 min", 
-    description: "Wrong fuel drain or emergency fuel delivery",
-    status: "Active", 
-    bookings: 34,
-    icon: "fuel"
-  },
-  { 
-    id: 9, 
-    name: "Vehicle Recovery / Towing", 
-    category: "Recovery", 
-    basePrice: 350, 
-    duration: "Varies", 
-    description: "Vehicle recovery and towing service",
-    status: "Active", 
-    bookings: 91,
-    icon: "truck"
-  },
-  { 
-    id: 10, 
-    name: "Diagnostic Check", 
-    category: "Diagnostics", 
-    basePrice: 120, 
-    duration: "45-60 min", 
-    description: "Comprehensive vehicle diagnostic check",
-    status: "Active", 
-    bookings: 103,
-    icon: "wrench"
-  },
-  { 
-    id: 11, 
-    name: "Locked Out of Vehicle", 
-    category: "Emergency", 
-    basePrice: 75, 
-    duration: "15-30 min", 
-    description: "Emergency vehicle unlocking service",
-    status: "Active", 
-    bookings: 28,
-    icon: "lock"
-  },
-  { 
-    id: 12, 
-    name: "Other (Describe in Notes)", 
-    category: "Other", 
-    basePrice: 100, 
-    duration: "Varies", 
-    description: "Custom service for issues not listed above",
-    status: "Active", 
-    bookings: 15,
-    icon: "clipboard"
-  },
-];
+type ServiceCatalogItem = {
+  _id: string;
+  name: string;
+  category: string;
+  description?: string | null;
+  basePrice?: number | null;
+  currency?: string | null;
+  durationLabel?: string | null;
+  isActive?: boolean;
+  bookingsCount?: number;
+  createdAt?: string;
+};
+
+type ServiceCatalogApiResponse = {
+  status: string;
+  message: string;
+  data: {
+    items: ServiceCatalogItem[];
+    stats: {
+      totalServices: number;
+      avgBasePrice: number;
+      totalBookings: number;
+      categories: number;
+    };
+  };
+};
 
 export function ServiceCatalog() {
+  const { alert } = useAdminDialog();
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
-  const [openDropdown, setOpenDropdown] = useState<number | null>(null);
+  const [items, setItems] = useState<ServiceCatalogItem[]>([]);
+  const [stats, setStats] = useState({
+    totalServices: 0,
+    avgBasePrice: 0,
+    totalBookings: 0,
+    categories: 0,
+  });
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<string | null>(null);
 
-  const toggleDropdown = (id: number) => {
-    setOpenDropdown(openDropdown === id ? null : id);
-  };
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editItem, setEditItem] = useState<ServiceCatalogItem | null>(null);
+
+  const [formName, setFormName] = useState("");
+  const [formCategory, setFormCategory] = useState("Roadside");
+  const [formBasePrice, setFormBasePrice] = useState("85");
+  const [formDuration, setFormDuration] = useState("");
+  const [formDescription, setFormDescription] = useState("");
+  const [formIsActive, setFormIsActive] = useState(true);
+
+  const session = getStoredAdminSession();
+  const accessToken = session?.accessToken;
+  const apiBaseUrl = getApiBaseUrl();
 
   const getServiceIcon = (iconType: string) => {
     switch (iconType) {
@@ -203,38 +167,478 @@ export function ServiceCatalog() {
     }
   };
 
-  const handleAction = (action: string, id: number) => {
-    console.log(`Action: ${action} on service: ${id}`);
-    setOpenDropdown(null);
+  const categoryOptions = useMemo(
+    () => [
+      "Roadside",
+      "Electrical",
+      "Engine",
+      "Emergency",
+      "Cooling",
+      "Brakes",
+      "Fuel",
+      "Recovery",
+      "Diagnostics",
+      "Other",
+    ],
+    []
+  );
+
+  const iconTypeForCategory = (category: string) => {
+    const normalized = category.trim().toLowerCase();
+    if (normalized.includes("road")) return "tire";
+    if (normalized.includes("elect")) return "battery";
+    if (normalized.includes("engine")) return "key";
+    if (normalized.includes("cool")) return "thermometer";
+    if (normalized.includes("brake")) return "disc";
+    if (normalized.includes("fuel")) return "fuel";
+    if (normalized.includes("recover")) return "truck";
+    if (normalized.includes("diagnos")) return "wrench";
+    if (normalized.includes("emergen")) return "lightning";
+    if (normalized.includes("lock")) return "lock";
+    return "clipboard";
   };
 
-  const filteredServices = services.filter((service) => {
-    const matchesSearch = 
-      service.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      service.description.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesCategory = categoryFilter === "All" || service.category === categoryFilter;
-    
-    return matchesSearch && matchesCategory;
-  });
+  const fetchCatalog = async () => {
+    if (!accessToken) {
+      setError("Your admin session has expired. Please sign in again.");
+      setLoading(false);
+      return;
+    }
 
-  const totalServices = services.length;
-  const avgPrice = Math.round(services.reduce((sum, s) => sum + s.basePrice, 0) / services.length);
-  const totalBookings = services.reduce((sum, s) => sum + s.bookings, 0);
-  const categories = [...new Set(services.map(s => s.category))].length;
+    setLoading(true);
+    setError(null);
+
+    try {
+      const params = new URLSearchParams();
+      if (searchTerm.trim()) params.set("search", searchTerm.trim());
+      if (categoryFilter !== "All") params.set("category", categoryFilter);
+
+      const response = await fetch(
+        `${apiBaseUrl}/admin/service-catalog${
+          params.toString() ? `?${params}` : ""
+        }`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }
+      );
+
+      const payload = (await response.json()) as ServiceCatalogApiResponse & {
+        message?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(payload.message || "Unable to load service catalog.");
+      }
+
+      setItems(payload.data.items || []);
+      setStats(
+        payload.data.stats || {
+          totalServices: 0,
+          avgBasePrice: 0,
+          totalBookings: 0,
+          categories: 0,
+        }
+      );
+    } catch (fetchError) {
+      setError(
+        fetchError instanceof Error
+          ? fetchError.message
+          : "Unable to load service catalog."
+      );
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      void fetchCatalog();
+    }, 200);
+    return () => window.clearTimeout(timeout);
+  }, [searchTerm, categoryFilter]);
+
+  const resetForm = () => {
+    setFormName("");
+    setFormCategory("Roadside");
+    setFormBasePrice("85");
+    setFormDuration("");
+    setFormDescription("");
+    setFormIsActive(true);
+  };
+
+  const openCreate = () => {
+    resetForm();
+    setCreateOpen(true);
+  };
+
+  const openEdit = (item: ServiceCatalogItem) => {
+    setEditItem(item);
+    setFormName(item.name || "");
+    setFormCategory(item.category || "Roadside");
+    setFormBasePrice(
+      item.basePrice !== null && item.basePrice !== undefined
+        ? String(item.basePrice)
+        : "0"
+    );
+    setFormDuration(item.durationLabel || "");
+    setFormDescription(item.description || "");
+    setFormIsActive(item.isActive ?? true);
+    setEditOpen(true);
+  };
+
+  const submitCreate = async () => {
+    if (!accessToken) return;
+    const name = formName.trim();
+    const category = formCategory.trim();
+    const basePrice = Number(formBasePrice);
+    if (!name) return setError("Service name is required.");
+    if (!category) return setError("Category is required.");
+    if (!Number.isFinite(basePrice) || basePrice < 0)
+      return setError("Base price must be a valid number.");
+
+    setSubmitting(true);
+    setError(null);
+    setFeedback(null);
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/admin/service-catalog`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          name,
+          category,
+          description: formDescription.trim(),
+          basePrice,
+          currency: "GBP",
+          durationLabel: formDuration.trim(),
+          isActive: formIsActive,
+        }),
+      });
+
+      const payload = (await response.json()) as { message?: string };
+      if (!response.ok) {
+        throw new Error(payload.message || "Unable to create service.");
+      }
+
+      setFeedback("Service created successfully.");
+      setCreateOpen(false);
+      resetForm();
+      await fetchCatalog();
+    } catch (createError) {
+      setError(
+        createError instanceof Error ? createError.message : "Unable to create service."
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const submitEdit = async () => {
+    if (!accessToken || !editItem?._id) return;
+    const name = formName.trim();
+    const category = formCategory.trim();
+    const basePrice = Number(formBasePrice);
+    if (!name) return setError("Service name is required.");
+    if (!category) return setError("Category is required.");
+    if (!Number.isFinite(basePrice) || basePrice < 0)
+      return setError("Base price must be a valid number.");
+
+    setSubmitting(true);
+    setError(null);
+    setFeedback(null);
+
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/admin/service-catalog/${editItem._id}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            name,
+            category,
+            description: formDescription.trim(),
+            basePrice,
+            durationLabel: formDuration.trim(),
+            isActive: formIsActive,
+          }),
+        }
+      );
+
+      const payload = (await response.json()) as { message?: string };
+      if (!response.ok) {
+        throw new Error(payload.message || "Unable to update service.");
+      }
+
+      setFeedback("Service updated successfully.");
+      setEditOpen(false);
+      setEditItem(null);
+      resetForm();
+      await fetchCatalog();
+    } catch (updateError) {
+      setError(
+        updateError instanceof Error ? updateError.message : "Unable to update service."
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const toggleActive = async (item: ServiceCatalogItem) => {
+    if (!accessToken) return;
+    setSubmitting(true);
+    setError(null);
+    setFeedback(null);
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/admin/service-catalog/${item._id}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ isActive: !(item.isActive ?? true) }),
+        }
+      );
+      const payload = (await response.json()) as { message?: string };
+      if (!response.ok) {
+        throw new Error(payload.message || "Unable to update service.");
+      }
+      setFeedback(
+        (item.isActive ?? true) ? "Service disabled." : "Service enabled."
+      );
+      await fetchCatalog();
+    } catch (toggleError) {
+      setError(
+        toggleError instanceof Error ? toggleError.message : "Unable to update service."
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <div>
+      <Dialog
+        open={createOpen}
+        onOpenChange={(nextOpen) => {
+          setCreateOpen(nextOpen);
+          if (!nextOpen) resetForm();
+        }}
+      >
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Add new service</DialogTitle>
+            <DialogDescription>
+              Create a new service type and base pricing for bookings.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-5">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Service name</Label>
+                <Input value={formName} onChange={(e) => setFormName(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Category</Label>
+                <Select value={formCategory} onValueChange={setFormCategory}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categoryOptions.map((cat) => (
+                      <SelectItem key={cat} value={cat}>
+                        {cat}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Base price (GBP)</Label>
+                <Input
+                  value={formBasePrice}
+                  onChange={(e) => setFormBasePrice(e.target.value)}
+                  inputMode="decimal"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Duration</Label>
+                <Input
+                  value={formDuration}
+                  onChange={(e) => setFormDuration(e.target.value)}
+                  placeholder="e.g. 30-45 min"
+                />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Description</Label>
+                <Textarea
+                  value={formDescription}
+                  onChange={(e) => setFormDescription(e.target.value)}
+                  placeholder="Short description shown to users"
+                />
+              </div>
+              <div className="flex items-center justify-between rounded-lg border bg-white p-4 sm:col-span-2">
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">Active</p>
+                  <p className="text-xs text-gray-500">
+                    Inactive services won’t be bookable.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setFormIsActive((v) => !v)}
+                >
+                  {formIsActive ? "Enabled" : "Disabled"}
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setCreateOpen(false)} disabled={submitting}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-blue-600/30"
+              onClick={() => void submitCreate()}
+              disabled={submitting}
+            >
+              {submitting ? "Creating..." : "Create service"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={editOpen}
+        onOpenChange={(nextOpen) => {
+          setEditOpen(nextOpen);
+          if (!nextOpen) {
+            setEditItem(null);
+            resetForm();
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit service</DialogTitle>
+            <DialogDescription>Update details and pricing.</DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-5">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Service name</Label>
+                <Input value={formName} onChange={(e) => setFormName(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Category</Label>
+                <Select value={formCategory} onValueChange={setFormCategory}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categoryOptions.map((cat) => (
+                      <SelectItem key={cat} value={cat}>
+                        {cat}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Base price (GBP)</Label>
+                <Input
+                  value={formBasePrice}
+                  onChange={(e) => setFormBasePrice(e.target.value)}
+                  inputMode="decimal"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Duration</Label>
+                <Input
+                  value={formDuration}
+                  onChange={(e) => setFormDuration(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Description</Label>
+                <Textarea
+                  value={formDescription}
+                  onChange={(e) => setFormDescription(e.target.value)}
+                />
+              </div>
+              <div className="flex items-center justify-between rounded-lg border bg-white p-4 sm:col-span-2">
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">Active</p>
+                  <p className="text-xs text-gray-500">
+                    Inactive services won’t be bookable.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setFormIsActive((v) => !v)}
+                >
+                  {formIsActive ? "Enabled" : "Disabled"}
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setEditOpen(false)} disabled={submitting}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-blue-600/30"
+              onClick={() => void submitEdit()}
+              disabled={submitting}
+            >
+              {submitting ? "Saving..." : "Save changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="mb-8 flex flex-col md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Service Catalog</h1>
           <p className="text-gray-600 mt-1">Manage service types and base pricing</p>
         </div>
-        <button className="mt-4 md:mt-0 flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+        <Button
+          className="mt-4 bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-blue-600/30 md:mt-0"
+          onClick={openCreate}
+          disabled={submitting}
+        >
           <Plus size={20} />
           Add New Service
-        </button>
+        </Button>
       </div>
+
+      {(error || feedback) && (
+        <div
+          className={`mb-6 rounded-lg border px-4 py-3 text-sm ${
+            error
+              ? "border-red-200 bg-red-50 text-red-700"
+              : "border-green-200 bg-green-50 text-green-700"
+          }`}
+        >
+          {error || feedback}
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
@@ -245,7 +649,7 @@ export function ServiceCatalog() {
               <Wrench className="text-blue-600" size={20} />
             </div>
           </div>
-          <p className="text-3xl font-bold text-gray-900">{totalServices}</p>
+          <p className="text-3xl font-bold text-gray-900">{stats.totalServices}</p>
         </div>
 
         <div className="bg-white rounded-lg shadow p-6">
@@ -255,7 +659,9 @@ export function ServiceCatalog() {
               <DollarSign className="text-green-600" size={20} />
             </div>
           </div>
-          <p className="text-3xl font-bold text-gray-900">£{avgPrice}</p>
+          <p className="text-3xl font-bold text-gray-900">
+            £{Math.round(stats.avgBasePrice)}
+          </p>
         </div>
 
         <div className="bg-white rounded-lg shadow p-6">
@@ -265,7 +671,7 @@ export function ServiceCatalog() {
               <Clock className="text-purple-600" size={20} />
             </div>
           </div>
-          <p className="text-3xl font-bold text-gray-900">{totalBookings}</p>
+          <p className="text-3xl font-bold text-gray-900">{stats.totalBookings}</p>
         </div>
 
         <div className="bg-white rounded-lg shadow p-6">
@@ -275,7 +681,7 @@ export function ServiceCatalog() {
               <Wrench className="text-orange-600" size={20} />
             </div>
           </div>
-          <p className="text-3xl font-bold text-gray-900">{categories}</p>
+          <p className="text-3xl font-bold text-gray-900">{stats.categories}</p>
         </div>
       </div>
 
@@ -298,90 +704,87 @@ export function ServiceCatalog() {
             onChange={(e) => setCategoryFilter(e.target.value)}
           >
             <option value="All">All Categories</option>
-            <option value="Roadside">Roadside</option>
-            <option value="Electrical">Electrical</option>
-            <option value="Engine">Engine</option>
-            <option value="Emergency">Emergency</option>
-            <option value="Cooling">Cooling</option>
-            <option value="Brakes">Brakes</option>
-            <option value="Fuel">Fuel</option>
-            <option value="Recovery">Recovery</option>
-            <option value="Diagnostics">Diagnostics</option>
-            <option value="Other">Other</option>
+            {categoryOptions.map((cat) => (
+              <option key={cat} value={cat}>
+                {cat}
+              </option>
+            ))}
           </select>
         </div>
       </div>
 
       {/* Services Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredServices.map((service) => (
-          <div key={service.id} className="bg-white rounded-lg shadow hover:shadow-lg transition-shadow">
+        {loading ? (
+          <div className="col-span-full rounded-lg bg-white p-10 text-center text-sm text-gray-500 shadow">
+            Loading services...
+          </div>
+        ) : items.length === 0 ? (
+          <div className="col-span-full rounded-lg bg-white p-10 text-center text-sm text-gray-500 shadow">
+            No services matched your filters yet.
+          </div>
+        ) : (
+          items.map((service) => {
+            const iconType = iconTypeForCategory(service.category);
+            return (
+          <div key={service._id} className="bg-white rounded-lg shadow hover:shadow-lg transition-shadow">
             <div className="p-6">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
-                  <div className={`p-3 ${getIconBackground(service.icon)} rounded-lg`}>
-                    {getServiceIcon(service.icon)}
+                  <div className={`p-3 ${getIconBackground(iconType)} rounded-lg`}>
+                    {getServiceIcon(iconType)}
                   </div>
                   <div>
                     <h3 className="font-semibold text-gray-900">{service.name}</h3>
                     <span className="text-xs text-gray-500">{service.category}</span>
                   </div>
                 </div>
-                <div className="relative">
-                  <button
-                    className="p-1 hover:bg-gray-100 rounded"
-                    onClick={() => toggleDropdown(service.id)}
-                  >
-                    <MoreVertical size={16} />
-                  </button>
-
-                  {openDropdown === service.id && (
-                    <>
-                      <div 
-                        className="fixed inset-0 z-10" 
-                        onClick={() => setOpenDropdown(null)}
-                      />
-                      
-                      <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 z-20">
-                        <div className="py-1">
-                          <button 
-                            onClick={() => handleAction("view", service.id)}
-                            className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                          >
-                            <Eye size={16} />
-                            <span>View Details</span>
-                          </button>
-                          
-                          <button 
-                            onClick={() => handleAction("edit", service.id)}
-                            className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                          >
-                            <Edit size={16} />
-                            <span>Edit Service</span>
-                          </button>
-
-                          <button 
-                            onClick={() => handleAction("duplicate", service.id)}
-                            className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                          >
-                            <Copy size={16} />
-                            <span>Duplicate</span>
-                          </button>
-
-                          <div className="border-t border-gray-200 my-1"></div>
-
-                          <button 
-                            onClick={() => handleAction("delete", service.id)}
-                            className="w-full flex items-center gap-3 px-4 py-2 text-sm text-red-700 hover:bg-red-50"
-                          >
-                            <Trash2 size={16} />
-                            <span>Delete</span>
-                          </button>
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button className="p-1 hover:bg-gray-100 rounded">
+                      <MoreVertical size={16} />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      onClick={() =>
+                        void alert({
+                          title: service.name,
+                          message: service.description || "No description.",
+                        })
+                      }
+                    >
+                      <Eye size={16} />
+                      View details
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => openEdit(service)}>
+                      <Edit size={16} />
+                      Edit service
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => {
+                        setFormName(`${service.name} (copy)`);
+                        setFormCategory(service.category);
+                        setFormBasePrice(String(service.basePrice ?? 0));
+                        setFormDuration(service.durationLabel || "");
+                        setFormDescription(service.description || "");
+                        setFormIsActive(service.isActive ?? true);
+                        setCreateOpen(true);
+                      }}
+                    >
+                      <Copy size={16} />
+                      Duplicate
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => void toggleActive(service)}
+                      variant="destructive"
+                    >
+                      <Trash2 size={16} />
+                      {service.isActive ?? true ? "Disable" : "Enable"}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
 
               <p className="text-sm text-gray-600 mb-4">{service.description}</p>
@@ -389,23 +792,38 @@ export function ServiceCatalog() {
               <div className="flex items-center justify-between mb-3">
                 <div>
                   <p className="text-xs text-gray-500">Base Price</p>
-                  <p className="text-2xl font-bold text-gray-900">£{service.basePrice}</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    £{Math.round(Number(service.basePrice ?? 0))}
+                  </p>
                 </div>
                 <div className="text-right">
                   <p className="text-xs text-gray-500">Duration</p>
-                  <p className="text-sm font-semibold text-gray-700">{service.duration}</p>
+                  <p className="text-sm font-semibold text-gray-700">
+                    {service.durationLabel || "Not set"}
+                  </p>
                 </div>
               </div>
 
               <div className="flex items-center justify-between pt-3 border-t border-gray-200">
-                <span className="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
-                  {service.status}
+                <Badge
+                  variant="secondary"
+                  className={
+                    (service.isActive ?? true)
+                      ? "bg-green-100 text-green-800 border-transparent"
+                      : "bg-slate-100 text-slate-700 border-transparent"
+                  }
+                >
+                  {(service.isActive ?? true) ? "Active" : "Inactive"}
+                </Badge>
+                <span className="text-xs text-gray-500">
+                  {service.bookingsCount ?? 0} bookings
                 </span>
-                <span className="text-xs text-gray-500">{service.bookings} bookings</span>
               </div>
             </div>
           </div>
-        ))}
+          );
+        })
+        )}
       </div>
     </div>
   );

@@ -1,51 +1,622 @@
-import { useState } from "react";
-import { Tag, Plus, Search, MoreVertical, Eye, Edit, Copy, Trash2, ToggleLeft, ToggleRight, TrendingUp } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  Copy,
+  Edit,
+  Eye,
+  MoreVertical,
+  Plus,
+  Search,
+  Tag,
+  TrendingUp,
+} from "lucide-react";
+import { getApiBaseUrl, getStoredAdminSession } from "../auth";
+import { useAdminDialog } from "../adminDialog";
+import { adminFetch } from "../apiClient";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 
-const promotions = [
-  { id: 1, code: "SPRING25", discount: 25, type: "Percentage", minAmount: 500, usage: 45, limit: 100, expiryDate: "2025-04-30", status: "Active" },
-  { id: 2, code: "FLEET50", discount: 50, type: "Fixed", minAmount: 1000, usage: 23, limit: 50, expiryDate: "2025-06-30", status: "Active" },
-  { id: 3, code: "WINTER20", discount: 20, type: "Percentage", minAmount: 300, usage: 89, limit: 200, expiryDate: "2025-03-31", status: "Active" },
-  { id: 4, code: "NEWCUST", discount: 100, type: "Fixed", minAmount: 0, usage: 12, limit: null, expiryDate: "2025-12-31", status: "Active" },
-  { id: 5, code: "LOYAL30", discount: 30, type: "Percentage", minAmount: 800, usage: 34, limit: 75, expiryDate: "2025-05-31", status: "Active" },
-  { id: 6, code: "EXPIRED10", discount: 10, type: "Percentage", minAmount: 200, usage: 156, limit: 200, expiryDate: "2025-02-28", status: "Expired" },
-];
+type PromotionItem = {
+  _id: string;
+  code: string;
+  discountType: "PERCENTAGE" | "FIXED" | string;
+  discountValue: number;
+  minAmount: number;
+  currency: string;
+  usageCount: number;
+  usageLimit: number | null;
+  status: "ACTIVE" | "INACTIVE" | "EXPIRED" | string;
+  expiresAt: string | null;
+  createdAt?: string;
+};
+
+type PromotionsApiResponse = {
+  status: string;
+  message: string;
+  data: {
+    items: PromotionItem[];
+    stats: {
+      activePromotions: number;
+      totalUsage: number;
+      avgDiscount: number;
+    };
+  };
+};
+
+const formatDate = (value: string | null) => {
+  if (!value) return "No expiry";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("en-GB", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+};
 
 export function Promotions() {
+  const { confirm } = useAdminDialog();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
-  const [openDropdown, setOpenDropdown] = useState<number | null>(null);
-
-  const toggleDropdown = (id: number) => {
-    setOpenDropdown(openDropdown === id ? null : id);
-  };
-
-  const handleAction = (action: string, id: number) => {
-    console.log(`Action: ${action} on promotion: ${id}`);
-    setOpenDropdown(null);
-  };
-
-  const filteredPromotions = promotions.filter((promo) => {
-    const matchesSearch = promo.code.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === "All" || promo.status === statusFilter;
-    return matchesSearch && matchesStatus;
+  const [items, setItems] = useState<PromotionItem[]>([]);
+  const [stats, setStats] = useState({
+    activePromotions: 0,
+    totalUsage: 0,
+    avgDiscount: 0,
   });
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<string | null>(null);
 
-  const activeCount = promotions.filter(p => p.status === "Active").length;
-  const totalUsage = promotions.reduce((sum, p) => sum + p.usage, 0);
-  const totalRevenue = 15600; // Mock data
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [activeItem, setActiveItem] = useState<PromotionItem | null>(null);
+
+  const [formCode, setFormCode] = useState("");
+  const [formDiscountType, setFormDiscountType] = useState<"PERCENTAGE" | "FIXED">(
+    "PERCENTAGE"
+  );
+  const [formDiscountValue, setFormDiscountValue] = useState("10");
+  const [formMinAmount, setFormMinAmount] = useState("0");
+  const [formUsageLimit, setFormUsageLimit] = useState("100");
+  const [formExpiresAt, setFormExpiresAt] = useState<string>(""); // yyyy-mm-dd
+  const [formStatus, setFormStatus] = useState<"ACTIVE" | "INACTIVE" | "EXPIRED">(
+    "ACTIVE"
+  );
+
+  const session = getStoredAdminSession();
+  const accessToken = session?.accessToken;
+  const apiBaseUrl = getApiBaseUrl();
+
+  const statusOptions = useMemo(
+    () => [
+      { value: "All", label: "All Status" },
+      { value: "ACTIVE", label: "Active" },
+      { value: "INACTIVE", label: "Inactive" },
+      { value: "EXPIRED", label: "Expired" },
+    ],
+    []
+  );
+
+  const getStatusBadge = (status: string) => {
+    if (status === "ACTIVE") return "bg-green-100 text-green-800 border-transparent";
+    if (status === "EXPIRED") return "bg-red-100 text-red-800 border-transparent";
+    if (status === "INACTIVE") return "bg-slate-100 text-slate-700 border-transparent";
+    return "bg-slate-100 text-slate-700 border-transparent";
+  };
+
+  const fetchPromotions = async () => {
+    if (!accessToken) {
+      setError("Your admin session has expired. Please sign in again.");
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const params = new URLSearchParams();
+      if (searchTerm.trim()) params.set("search", searchTerm.trim());
+      if (statusFilter !== "All") params.set("status", statusFilter);
+
+      const response = await fetch(
+        `${apiBaseUrl}/admin/promotions${params.toString() ? `?${params}` : ""}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+
+      const payload = (await response.json()) as PromotionsApiResponse & {
+        message?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(payload.message || "Unable to load promotions.");
+      }
+
+      const normalizedItems = (payload.data.items || []).map((item) => ({
+        ...item,
+        status: `${item.status || ""}`.trim().toUpperCase(),
+        discountType: `${item.discountType || ""}`.trim().toUpperCase(),
+        code: `${item.code || ""}`.trim().toUpperCase(),
+      }));
+
+      setItems(normalizedItems);
+      setStats(
+        payload.data.stats || { activePromotions: 0, totalUsage: 0, avgDiscount: 0 }
+      );
+    } catch (fetchError) {
+      setError(
+        fetchError instanceof Error ? fetchError.message : "Unable to load promotions."
+      );
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => void fetchPromotions(), 200);
+    return () => window.clearTimeout(timeout);
+  }, [searchTerm, statusFilter]);
+
+  const resetForm = () => {
+    setFormCode("");
+    setFormDiscountType("PERCENTAGE");
+    setFormDiscountValue("10");
+    setFormMinAmount("0");
+    setFormUsageLimit("100");
+    setFormExpiresAt("");
+    setFormStatus("ACTIVE");
+  };
+
+  const openCreate = () => {
+    resetForm();
+    setCreateOpen(true);
+  };
+
+  const openEdit = (item: PromotionItem) => {
+    setActiveItem(item);
+    setFormCode(item.code || "");
+    setFormDiscountType((item.discountType as any) === "FIXED" ? "FIXED" : "PERCENTAGE");
+    setFormDiscountValue(String(item.discountValue ?? 0));
+    setFormMinAmount(String(item.minAmount ?? 0));
+    setFormUsageLimit(item.usageLimit !== null && item.usageLimit !== undefined ? String(item.usageLimit) : "100");
+    setFormExpiresAt(item.expiresAt ? String(item.expiresAt).slice(0, 10) : "");
+    setFormStatus((item.status as any) || "ACTIVE");
+    setEditOpen(true);
+  };
+
+  const openDetails = (item: PromotionItem) => {
+    setActiveItem(item);
+    setDetailsOpen(true);
+  };
+
+  const submitCreate = async () => {
+    if (!accessToken) return;
+    const code = formCode.trim().toUpperCase();
+    const discountValue = Number(formDiscountValue);
+    const minAmount = Number(formMinAmount);
+    const usageLimit = Number(formUsageLimit);
+    if (!code) return setError("Promo code is required.");
+    if (!Number.isFinite(discountValue) || discountValue <= 0)
+      return setError("Discount value must be greater than 0.");
+    if (!Number.isFinite(minAmount) || minAmount < 0)
+      return setError("Min amount must be 0 or greater.");
+    if (!Number.isFinite(usageLimit) || usageLimit < 1)
+      return setError("Usage limit must be at least 1.");
+
+    setSubmitting(true);
+    setError(null);
+    setFeedback(null);
+
+    try {
+      const response = await adminFetch(`/admin/promotions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          code,
+          discountType: formDiscountType,
+          discountValue,
+          minAmount,
+          currency: "GBP",
+          usageLimit,
+          status: formStatus,
+          expiresAt: formExpiresAt ? new Date(formExpiresAt).toISOString() : null,
+        }),
+      });
+
+      const payload = (await response.json()) as { message?: string };
+      if (!response.ok) throw new Error(payload.message || "Unable to create promotion.");
+
+      setFeedback("Promotion created successfully.");
+      setCreateOpen(false);
+      resetForm();
+      await fetchPromotions();
+    } catch (createError) {
+      setError(
+        createError instanceof Error ? createError.message : "Unable to create promotion."
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const submitEdit = async () => {
+    if (!accessToken || !activeItem?._id) return;
+    const code = formCode.trim().toUpperCase();
+    const discountValue = Number(formDiscountValue);
+    const minAmount = Number(formMinAmount);
+    const usageLimit = Number(formUsageLimit);
+    if (!code) return setError("Promo code is required.");
+    if (!Number.isFinite(discountValue) || discountValue <= 0)
+      return setError("Discount value must be greater than 0.");
+    if (!Number.isFinite(minAmount) || minAmount < 0)
+      return setError("Min amount must be 0 or greater.");
+    if (!Number.isFinite(usageLimit) || usageLimit < 1)
+      return setError("Usage limit must be at least 1.");
+
+    setSubmitting(true);
+    setError(null);
+    setFeedback(null);
+
+    try {
+      const response = await adminFetch(`/admin/promotions/${activeItem._id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          code,
+          discountType: formDiscountType,
+          discountValue,
+          minAmount,
+          usageLimit,
+          status: formStatus,
+          expiresAt: formExpiresAt ? new Date(formExpiresAt).toISOString() : null,
+        }),
+      });
+
+      const payload = (await response.json()) as { message?: string };
+      if (!response.ok) throw new Error(payload.message || "Unable to update promotion.");
+
+      setFeedback("Promotion updated successfully.");
+      setEditOpen(false);
+      setActiveItem(null);
+      resetForm();
+      await fetchPromotions();
+    } catch (updateError) {
+      setError(
+        updateError instanceof Error ? updateError.message : "Unable to update promotion."
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const toggleStatus = async (item: PromotionItem) => {
+    if (!accessToken) return;
+    const nextStatus = item.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+
+    setSubmitting(true);
+    setError(null);
+    setFeedback(null);
+
+    try {
+      const response = await adminFetch(`/admin/promotions/${item._id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+
+      const payload = (await response.json()) as { message?: string };
+      if (!response.ok) throw new Error(payload.message || "Unable to update promotion.");
+
+      setFeedback(nextStatus === "ACTIVE" ? "Promotion activated." : "Promotion deactivated.");
+      await fetchPromotions();
+    } catch (toggleError) {
+      setError(
+        toggleError instanceof Error ? toggleError.message : "Unable to update promotion."
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const deletePromotion = async (item: PromotionItem) => {
+    if (!accessToken) return;
+    const confirmed = await confirm({
+      title: "Delete promotion",
+      message: `Delete promotion ${item.code}?`,
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!confirmed) return;
+
+    setSubmitting(true);
+    setError(null);
+    setFeedback(null);
+
+    try {
+      const response = await adminFetch(`/admin/promotions/${item._id}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      const payload = (await response.json()) as { message?: string };
+      if (!response.ok) {
+        throw new Error(payload.message || "Unable to delete promotion.");
+      }
+
+      setFeedback("Promotion deleted.");
+      await fetchPromotions();
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error ? deleteError.message : "Unable to delete promotion."
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <div>
+      <Dialog open={createOpen} onOpenChange={(next) => { setCreateOpen(next); if (!next) resetForm(); }}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Create promotion</DialogTitle>
+            <DialogDescription>Create a discount code and rules.</DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-5">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Promo code</Label>
+                <Input value={formCode} onChange={(e) => setFormCode(e.target.value)} placeholder="SPRING25" />
+              </div>
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <Select value={formStatus} onValueChange={(v) => setFormStatus(v as any)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ACTIVE">Active</SelectItem>
+                    <SelectItem value="INACTIVE">Inactive</SelectItem>
+                    <SelectItem value="EXPIRED">Expired</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Discount type</Label>
+                <Select value={formDiscountType} onValueChange={(v) => setFormDiscountType(v as any)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PERCENTAGE">Percentage</SelectItem>
+                    <SelectItem value="FIXED">Fixed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Discount value</Label>
+                <Input value={formDiscountValue} onChange={(e) => setFormDiscountValue(e.target.value)} inputMode="decimal" />
+              </div>
+              <div className="space-y-2">
+                <Label>Min amount (GBP)</Label>
+                <Input value={formMinAmount} onChange={(e) => setFormMinAmount(e.target.value)} inputMode="decimal" />
+              </div>
+              <div className="space-y-2">
+                <Label>Usage limit</Label>
+                <Input value={formUsageLimit} onChange={(e) => setFormUsageLimit(e.target.value)} inputMode="numeric" />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Expiry date</Label>
+                <Input type="date" value={formExpiresAt} onChange={(e) => setFormExpiresAt(e.target.value)} />
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setCreateOpen(false)} disabled={submitting}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-blue-600/30"
+              onClick={() => void submitCreate()}
+              disabled={submitting}
+            >
+              {submitting ? "Creating..." : "Create promotion"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editOpen} onOpenChange={(next) => { setEditOpen(next); if (!next) { setActiveItem(null); resetForm(); } }}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit promotion</DialogTitle>
+            <DialogDescription>Update discount settings.</DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-5">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Promo code</Label>
+                <Input value={formCode} onChange={(e) => setFormCode(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <Select value={formStatus} onValueChange={(v) => setFormStatus(v as any)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ACTIVE">Active</SelectItem>
+                    <SelectItem value="INACTIVE">Inactive</SelectItem>
+                    <SelectItem value="EXPIRED">Expired</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Discount type</Label>
+                <Select value={formDiscountType} onValueChange={(v) => setFormDiscountType(v as any)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PERCENTAGE">Percentage</SelectItem>
+                    <SelectItem value="FIXED">Fixed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Discount value</Label>
+                <Input value={formDiscountValue} onChange={(e) => setFormDiscountValue(e.target.value)} inputMode="decimal" />
+              </div>
+              <div className="space-y-2">
+                <Label>Min amount (GBP)</Label>
+                <Input value={formMinAmount} onChange={(e) => setFormMinAmount(e.target.value)} inputMode="decimal" />
+              </div>
+              <div className="space-y-2">
+                <Label>Usage limit</Label>
+                <Input value={formUsageLimit} onChange={(e) => setFormUsageLimit(e.target.value)} inputMode="numeric" />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Expiry date</Label>
+                <Input type="date" value={formExpiresAt} onChange={(e) => setFormExpiresAt(e.target.value)} />
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setEditOpen(false)} disabled={submitting}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-blue-600/30"
+              onClick={() => void submitEdit()}
+              disabled={submitting}
+            >
+              {submitting ? "Saving..." : "Save changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={detailsOpen} onOpenChange={(next) => { setDetailsOpen(next); if (!next) setActiveItem(null); }}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Promotion details</DialogTitle>
+            <DialogDescription>Review this promotion summary.</DialogDescription>
+          </DialogHeader>
+          {activeItem ? (
+            <div className="grid gap-3 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-gray-500">Code</span>
+                <span className="font-medium text-gray-900">{activeItem.code}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-500">Discount</span>
+                <span className="font-medium text-gray-900">
+                  {activeItem.discountType === "PERCENTAGE"
+                    ? `${activeItem.discountValue}%`
+                    : `£${activeItem.discountValue}`}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-500">Min amount</span>
+                <span className="font-medium text-gray-900">
+                  {activeItem.minAmount > 0 ? `£${activeItem.minAmount}` : "No minimum"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-500">Usage</span>
+                <span className="font-medium text-gray-900">
+                  {activeItem.usageCount}
+                  {activeItem.usageLimit ? ` / ${activeItem.usageLimit}` : ""}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-500">Expiry</span>
+                <span className="font-medium text-gray-900">{formatDate(activeItem.expiresAt)}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-500">Status</span>
+                <Badge variant="secondary" className={getStatusBadge(activeItem.status)}>
+                  {activeItem.status}
+                </Badge>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-lg border bg-white p-6 text-sm text-gray-600">
+              No promotion selected.
+            </div>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setDetailsOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="mb-8 flex flex-col md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Promotions & Discounts</h1>
           <p className="text-gray-600 mt-1">Manage discount codes and special offers</p>
         </div>
-        <button className="mt-4 md:mt-0 flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+        <Button
+          className="mt-4 bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-blue-600/30 md:mt-0"
+          onClick={openCreate}
+          disabled={submitting}
+        >
           <Plus size={20} />
           Create Promotion
-        </button>
+        </Button>
       </div>
+
+      {(error || feedback) && (
+        <div
+          className={`mb-6 rounded-lg border px-4 py-3 text-sm ${
+            error
+              ? "border-red-200 bg-red-50 text-red-700"
+              : "border-green-200 bg-green-50 text-green-700"
+          }`}
+        >
+          {error || feedback}
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
@@ -56,7 +627,7 @@ export function Promotions() {
               <Tag className="text-green-600" size={20} />
             </div>
           </div>
-          <p className="text-3xl font-bold text-gray-900">{activeCount}</p>
+          <p className="text-3xl font-bold text-gray-900">{stats.activePromotions}</p>
         </div>
 
         <div className="bg-white rounded-lg shadow p-6">
@@ -66,7 +637,7 @@ export function Promotions() {
               <TrendingUp className="text-blue-600" size={20} />
             </div>
           </div>
-          <p className="text-3xl font-bold text-gray-900">{totalUsage}</p>
+          <p className="text-3xl font-bold text-gray-900">{stats.totalUsage}</p>
         </div>
 
         <div className="bg-white rounded-lg shadow p-6">
@@ -76,7 +647,7 @@ export function Promotions() {
               <TrendingUp className="text-purple-600" size={20} />
             </div>
           </div>
-          <p className="text-3xl font-bold text-gray-900">£{totalRevenue.toLocaleString()}</p>
+          <p className="text-3xl font-bold text-gray-900">£0</p>
         </div>
 
         <div className="bg-white rounded-lg shadow p-6">
@@ -86,7 +657,7 @@ export function Promotions() {
               <Tag className="text-orange-600" size={20} />
             </div>
           </div>
-          <p className="text-3xl font-bold text-gray-900">22%</p>
+          <p className="text-3xl font-bold text-gray-900">{stats.avgDiscount}%</p>
         </div>
       </div>
 
@@ -108,10 +679,11 @@ export function Promotions() {
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
           >
-            <option value="All">All Status</option>
-            <option value="Active">Active</option>
-            <option value="Expired">Expired</option>
-            <option value="Inactive">Inactive</option>
+            {statusOptions.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
           </select>
         </div>
       </div>
@@ -146,8 +718,21 @@ export function Promotions() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredPromotions.map((promo) => (
-                <tr key={promo.id} className="hover:bg-gray-50">
+              {loading ? (
+                <tr>
+                  <td className="px-6 py-10 text-center text-sm text-gray-500" colSpan={7}>
+                    Loading promotions...
+                  </td>
+                </tr>
+              ) : items.length === 0 ? (
+                <tr>
+                  <td className="px-6 py-10 text-center text-sm text-gray-500" colSpan={7}>
+                    No promotions matched your filters yet.
+                  </td>
+                </tr>
+              ) : (
+              items.map((promo) => (
+                <tr key={promo._id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center gap-2">
                       <Tag size={16} className="text-blue-600" />
@@ -156,109 +741,94 @@ export function Promotions() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className="text-sm font-semibold text-green-600">
-                      {promo.type === "Percentage" ? `${promo.discount}%` : `£${promo.discount}`}
+                      {promo.discountType === "PERCENTAGE"
+                        ? `${promo.discountValue}%`
+                        : `£${promo.discountValue}`}
                     </span>
-                    <span className="ml-1 text-xs text-gray-500">({promo.type})</span>
+                    <span className="ml-1 text-xs text-gray-500">
+                      ({promo.discountType === "PERCENTAGE" ? "Percentage" : "Fixed"})
+                    </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                     {promo.minAmount > 0 ? `£${promo.minAmount}` : "No minimum"}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex flex-col">
-                      <span className="text-sm font-medium text-gray-900">{promo.usage}</span>
-                      {promo.limit && (
-                        <span className="text-xs text-gray-500">/ {promo.limit} limit</span>
-                      )}
+                      <span className="text-sm font-medium text-gray-900">{promo.usageCount}</span>
+                      {promo.usageLimit ? (
+                        <span className="text-xs text-gray-500">/ {promo.usageLimit} limit</span>
+                      ) : null}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                    {promo.expiryDate}
+                    {formatDate(promo.expiresAt)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                      promo.status === "Active" ? "bg-green-100 text-green-800" :
-                      promo.status === "Expired" ? "bg-red-100 text-red-800" :
-                      "bg-gray-100 text-gray-800"
-                    }`}>
-                      {promo.status}
-                    </span>
+                    <Badge variant="secondary" className={getStatusBadge(promo.status)}>
+                      {promo.status === "ACTIVE"
+                        ? "Active"
+                        : promo.status === "INACTIVE"
+                        ? "Inactive"
+                        : promo.status === "EXPIRED"
+                        ? "Expired"
+                        : promo.status}
+                    </Badge>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    <div className="relative">
-                      <button
-                        className="p-1 hover:bg-gray-100 rounded"
-                        onClick={() => toggleDropdown(promo.id)}
-                      >
-                        <MoreVertical size={16} />
-                      </button>
-
-                      {openDropdown === promo.id && (
-                        <>
-                          <div 
-                            className="fixed inset-0 z-10" 
-                            onClick={() => setOpenDropdown(null)}
-                          />
-                          
-                          <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 z-20">
-                            <div className="py-1">
-                              <button 
-                                onClick={() => handleAction("view", promo.id)}
-                                className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                              >
-                                <Eye size={16} />
-                                <span>View Details</span>
-                              </button>
-                              
-                              <button 
-                                onClick={() => handleAction("edit", promo.id)}
-                                className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                              >
-                                <Edit size={16} />
-                                <span>Edit Promotion</span>
-                              </button>
-
-                              <button 
-                                onClick={() => handleAction("duplicate", promo.id)}
-                                className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                              >
-                                <Copy size={16} />
-                                <span>Duplicate</span>
-                              </button>
-
-                              <div className="border-t border-gray-200 my-1"></div>
-
-                              <button 
-                                onClick={() => handleAction("toggle", promo.id)}
-                                className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                              >
-                                {promo.status === "Active" ? (
-                                  <>
-                                    <ToggleLeft size={16} />
-                                    <span>Deactivate</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <ToggleRight size={16} />
-                                    <span>Activate</span>
-                                  </>
-                                )}
-                              </button>
-
-                              <button 
-                                onClick={() => handleAction("delete", promo.id)}
-                                className="w-full flex items-center gap-3 px-4 py-2 text-sm text-red-700 hover:bg-red-50"
-                              >
-                                <Trash2 size={16} />
-                                <span>Delete</span>
-                              </button>
-                            </div>
-                          </div>
-                        </>
-                      )}
-                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button className="p-1 hover:bg-gray-100 rounded">
+                          <MoreVertical size={16} />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => openDetails(promo)}>
+                          <Eye size={16} />
+                          View details
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => openEdit(promo)}>
+                          <Edit size={16} />
+                          Edit promotion
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => {
+                            setFormCode(`${promo.code}-COPY`);
+                            setFormDiscountType(
+                              promo.discountType === "FIXED" ? "FIXED" : "PERCENTAGE"
+                            );
+                            setFormDiscountValue(String(promo.discountValue ?? 0));
+                            setFormMinAmount(String(promo.minAmount ?? 0));
+                            setFormUsageLimit(
+                              promo.usageLimit ? String(promo.usageLimit) : "100"
+                            );
+                            setFormExpiresAt(promo.expiresAt ? String(promo.expiresAt).slice(0, 10) : "");
+                            setFormStatus("INACTIVE");
+                            setCreateOpen(true);
+                          }}
+                        >
+                          <Copy size={16} />
+                          Duplicate
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onClick={() => void toggleStatus(promo)}
+                          variant="destructive"
+                        >
+                          <Tag size={16} />
+                          {promo.status === "ACTIVE" ? "Deactivate" : "Activate"}
+                        </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => void deletePromotion(promo)}
+                      variant="destructive"
+                    >
+                      <span className="text-destructive">Delete</span>
+                    </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </td>
                 </tr>
-              ))}
+              ))
+              )}
             </tbody>
           </table>
         </div>
